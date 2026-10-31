@@ -26,7 +26,8 @@ Flutter + Go + MySQL + Redis，消息走腾讯 IM，音视频走腾讯 TRTC。
 ## 在线仓库与 Android 安装包
 
 - 仓库：<https://github.com/saek17995-eng/datechat>
-- 安装包：GitHub Release 里的 `datechat-*.apk`（Android 7.0+ / API 21+，约 20MB）
+- 安装包：Release 里的 `datechat-*.apk`（Android 7.0 / API 24 以上，arm64，19MB）
+  → <https://github.com/saek17995-eng/datechat/releases/tag/v0.1.0>
 
 安装包由 GitHub Actions 自动构建：`.github/workflows/android-apk.yml` 用 Flutter 官方模板
 现生成 `android/` 平台壳 → 补权限与签名 → `flutter build apk --release`，产物作为
@@ -47,8 +48,11 @@ gh run download --name datechat-apk-<sha>
 
 关于平台壳：仓库只维护 `app/lib/`，`android/` 不入库（由模板按 SDK 版本现生成，
 避免在仓库里留一堆过期模板文件）。权限与签名由 `scripts/android/prepare_apk.py` 补齐，
-其中最关键的是 **INTERNET —— Flutter 的 release 主 manifest 默认不带，
-不补的话正式包上不了网**。
+其中最关键的两点：
+
+- **INTERNET —— Flutter 的 release 主 manifest 默认不带，不补的话正式包上不了网**；
+- release 默认用 debug key 签名（能装、上不了架），脚本会换成 CI 现场生成的
+  RSA-2048 自签密钥，签出来是 v2/v3 签名。上架前请换成你自己的正式密钥。
 
 iOS 包需要 macOS + Xcode + Apple 开发者账号（签名与描述文件），本仓库暂未提供。
 
