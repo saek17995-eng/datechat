@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/di/providers.dart';
 import '../../core/network/api_exception.dart';
+import '../../shared/widgets/server_settings_sheet.dart';
 import 'auth_controller.dart';
 
 /// 手机号 + 验证码登录页。
@@ -26,6 +28,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   int _countdown = 0;
   bool _sending = false;
   bool _submitting = false;
+  bool _networkError = false;
   String? _hint;
 
   @override
@@ -58,7 +61,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       });
       _startCountdown();
     } on ApiException catch (error) {
-      if (mounted) setState(() => _hint = error.message);
+      if (!mounted) return;
+      // 连不上服务器时把当前地址一并显示出来：
+      // 打包时烧的默认地址在真机上几乎必然不通，让用户自己填比让他重装一个包现实。
+      setState(() {
+        _networkError = error.isNetworkError;
+        _hint = error.isNetworkError
+            ? '${error.message}（当前地址 ${ref.read(apiBaseUrlProvider)}）'
+            : error.message;
+      });
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -178,6 +189,22 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     color: theme.colorScheme.error,
                   ),
                 ),
+              if (_networkError)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      await showServerSettingsSheet(context);
+                      if (!mounted) return;
+                      setState(() {
+                        _networkError = false;
+                        _hint = null;
+                      });
+                    },
+                    icon: const Icon(Icons.dns_outlined, size: 18),
+                    label: const Text('修改服务器地址'),
+                  ),
+                ),
               const SizedBox(height: 24),
               SizedBox(
                 height: 52,
@@ -199,6 +226,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 '我们仅收集提供服务所必需的信息，手机号加密存储。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => showServerSettingsSheet(context),
+                  icon: const Icon(Icons.settings_ethernet, size: 18),
+                  label: Text('服务器：${ref.watch(apiBaseUrlProvider)}'),
                 ),
               ),
             ],

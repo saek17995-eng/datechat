@@ -6,6 +6,8 @@ import '../auth/auth_controller.dart';
 import '../auth/realname_sheet.dart';
 import '../auth/data/auth_models.dart';
 import '../nearby/nearby_page.dart';
+import '../../core/di/providers.dart';
+import '../../shared/widgets/server_settings_sheet.dart';
 import 'data/profile_models.dart';
 import 'profile_controller.dart';
 import 'profile_image.dart';
@@ -93,6 +95,14 @@ class ProfilePage extends ConsumerWidget {
                     ],
                   ),
                   onTap: () => context.push('/visits'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.dns_outlined),
+                  title: const Text('服务器地址'),
+                  subtitle: Text(ref.watch(apiBaseUrlProvider)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showServerSettingsSheet(context),
                 ),
                 const Divider(height: 1),
                 ListTile(

@@ -46,10 +46,26 @@ class AppEnv {
     trtcSdkAppId: 0,
   );
 
-  /// 当前生效环境，由 main/bootstrap 在启动时初始化。
+  AppEnv copyWith({String? apiBaseUrl}) => AppEnv(
+        flavor: flavor,
+        apiBaseUrl: apiBaseUrl ?? this.apiBaseUrl,
+        imSdkAppId: imSdkAppId,
+        trtcSdkAppId: trtcSdkAppId,
+      );
+
+  /// 打包时烧进去的地址（不含用户后来的覆盖值），用于"恢复默认"。
+  static String get builtInBaseUrl =>
+      kReleaseMode ? _prod.apiBaseUrl : _dev.apiBaseUrl;
+
+  /// 当前生效环境，由 bootstrap 在启动时初始化。
   static AppEnv current = _dev;
 
-  static void init() {
+  /// [overrideBaseUrl] 来自本地存储，非空则覆盖打包默认值。
+  static void init({String? overrideBaseUrl}) {
     current = kReleaseMode ? _prod : _dev;
+    final url = overrideBaseUrl?.trim() ?? '';
+    if (url.isNotEmpty) {
+      current = current.copyWith(apiBaseUrl: url);
+    }
   }
 }

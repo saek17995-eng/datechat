@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/config/app_env.dart';
 import 'core/di/providers.dart';
 import 'core/router/app_router.dart';
+import 'core/storage/server_config_store.dart';
 import 'core/storage/token_store.dart';
 import 'core/theme/app_theme.dart';
 
@@ -18,13 +19,17 @@ import 'core/theme/app_theme.dart';
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  AppEnv.init();
   final tokenStore = await TokenStore.create();
+  final serverConfig = await ServerConfigStore.create();
+
+  // 用户在 App 里改过的后端地址优先于打包值
+  AppEnv.init(overrideBaseUrl: serverConfig.baseUrlOverride);
 
   runApp(
     ProviderScope(
       overrides: [
         tokenStoreProvider.overrideWithValue(tokenStore),
+        serverConfigStoreProvider.overrideWithValue(serverConfig),
       ],
       child: const DateChatApp(),
     ),
