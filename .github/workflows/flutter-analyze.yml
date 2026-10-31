@@ -1,0 +1,52 @@
+# 云端跑 flutter analyze / test / build
+#
+# 为什么有这个文件：本地装 Flutter SDK 要 2.1GB，网络差的环境很难搞。
+# 把仓库推到 GitHub 后，这个工作流会在干净的 Ubuntu 上跑真分析，
+# 5 分钟出结果，和本地 `flutter analyze` 完全等价。
+#
+# 触发：改动 app/ 下的任何文件，或在 Actions 页面手动触发。
+name: Flutter CI
+
+on:
+  push:
+    paths:
+      - "app/**"
+      - ".github/workflows/flutter-analyze.yml"
+  pull_request:
+    paths:
+      - "app/**"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.9"
+          channel: stable
+          cache: true
+
+      - name: 版本信息
+        run: flutter --version
+
+      - name: 拉依赖
+        run: flutter pub get
+
+      - name: 静态分析（warning 也算失败）
+        run: flutter analyze --no-pub
+
+      - name: 格式检查
+        run: dart format --output=none --set-exit-if-changed lib
+
+      - name: 单元测试
+        run: flutter test --no-pub
+
+      - name: Web 编译（验证能真的编出产物）
+        run: flutter build web --release --no-pub

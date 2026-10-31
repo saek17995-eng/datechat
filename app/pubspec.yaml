@@ -1,0 +1,31 @@
+name: datechat
+description: 陌生人语音视频社交 App（Flutter 客户端）
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 状态管理：Riverpod 2，编译期安全、无 BuildContext 依赖
+  flutter_riverpod: ^2.6.1
+  # 路由：声明式路由 + 底部导航状态保持
+  go_router: ^14.6.2
+  # 网络
+  dio: ^5.7.0
+  # 本地存储（令牌、设备 ID）
+  shared_preferences: ^2.3.3
+  intl: ^0.19.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

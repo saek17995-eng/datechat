@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+
+# Go
+server/bin/
+server/tmp/
+*.test
+*.out
+
+# 本地密钥文件（禁止提交；模板 .env.example 可以提交）
+.env
+.env.*
+!.env.example
+server/configs/.env
+server/configs/.env.*
+
+# 本地覆盖配置（含密钥，禁止提交）
+server/configs/config.local.yaml
+server/configs/config.prod.yaml.bak
+
+# Flutter / Dart
+app/.dart_tool/
+app/.packages
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/pubspec.lock
+app/ios/Pods/
+app/ios/.symlinks/
+app/android/.gradle/
+app/android/local.properties
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 本地运行时数据（MySQL 数据目录、Redis 快照、迁移中间产物）
+.local/
+
+# 日志
+*.log
+logs/
+
+
+# 项目本地工作数据（WorkBuddy 会话与记忆）
+.workbuddy/

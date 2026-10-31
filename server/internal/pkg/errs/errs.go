@@ -1,0 +1,190 @@
+// Package errs 定义全站统一错误码。
+//
+// 约定：
+//   - 4 位以上数字，前两位标识域：10 通用、20 用户、30 社交安全、40 通话、50 钱包；
+//   - Error 同时携带业务码、用户可读文案与 HTTP 状态码；
+//   - 业务错误用预定义变量 + WithMsg 定制文案，禁止在 handler 里裸写字符串码。
+package errs
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+)
+
+// Code 业务错误码。
+type Code int
+
+// 通用错误码（10xxx）
+const (
+	CodeOK              Code = 0
+	CodeInternal        Code = 10000
+	CodeInvalidParam    Code = 10001
+	CodeNotFound        Code = 10002
+	CodeTooManyRequests Code = 10003
+	CodeServiceBusy     Code = 10004
+)
+
+// 鉴权错误码（101xx）
+const (
+	CodeUnauthorized Code = 10100
+	CodeTokenExpired Code = 10101
+	CodeTokenInvalid Code = 10102
+	CodeForbidden    Code = 10103
+)
+
+// 用户域（20xxx）
+const (
+	CodeUserNotFound     Code = 20001
+	CodeUserBanned       Code = 20002
+	CodeRealnameRequired Code = 20003
+	CodeSmsCodeInvalid   Code = 20004
+	CodeSmsTooFrequent   Code = 20005
+)
+
+// 社交安全域（30xxx）
+const (
+	CodeBlocked              Code = 30001
+	CodeSensitiveWord        Code = 30002
+	CodeReportFailed         Code = 30003
+	CodeMessageNotFound      Code = 30004
+	CodeMessageRecallExpired Code = 30005
+)
+
+// 通话域（40xxx）
+const (
+	CodeCallBusy         Code = 40001
+	CodeCallNotFound     Code = 40002
+	CodeCallStateIllegal Code = 40003
+)
+
+// 钱包域（50xxx）
+const (
+	CodeBalanceNotEnough Code = 50001
+	CodeOrderNotFound    Code = 50002
+	CodeOrderDuplicated  Code = 50003
+	CodePayFailed        Code = 50004
+)
+
+// Error 是业务错误载体，实现 error 接口。
+type Error struct {
+	Code Code
+	Msg  string
+	HTTP int
+	Err  error // 包装的底层错误，仅用于日志，不返回给客户端
+}
+
+func (e *Error) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%d:%s (%v)", e.Code, e.Msg, e.Err)
+	}
+	return fmt.Sprintf("%d:%s", e.Code, e.Msg)
+}
+
+func (e *Error) Unwrap() error { return e.Err }
+
+// WithMsg 基于已有错误派生新文案，不修改原变量（避免并发下互相污染）。
+func (e *Error) WithMsg(format string, args ...any) *Error {
+	clone := *e
+	if len(args) == 0 {
+		clone.Msg = format
+	} else {
+		clone.Msg = fmt.Sprintf(format, args...)
+	}
+	return &clone
+}
+
+// WithErr 附加底层错误，便于日志定位。
+func (e *Error) WithErr(err error) *Error {
+	clone := *e
+	clone.Err = err
+	return &clone
+}
+
+// New 自定义业务错误。
+func New(code Code, msg string, httpStatus int) *Error {
+	return &Error{Code: code, Msg: msg, HTTP: httpStatus}
+}
+
+// 便捷构造函数：业务层只需关心"这是什么语义"，不必重复写 HTTP 状态码。
+// 每次都返回新实例，调用方可以安全地用 WithMsg 定制文案。
+func BadRequest(msg string) *Error {
+	return &Error{Code: CodeInvalidParam, Msg: msg, HTTP: http.StatusBadRequest}
+}
+func NotFound(msg string) *Error {
+	return &Error{Code: CodeNotFound, Msg: msg, HTTP: http.StatusNotFound}
+}
+func Unauthorized(msg string) *Error {
+	return &Error{Code: CodeUnauthorized, Msg: msg, HTTP: http.StatusUnauthorized}
+}
+func Forbidden(msg string) *Error {
+	return &Error{Code: CodeForbidden, Msg: msg, HTTP: http.StatusForbidden}
+}
+func Conflict(msg string) *Error {
+	return &Error{Code: CodeInvalidParam, Msg: msg, HTTP: http.StatusConflict}
+}
+func TooManyRequests(msg string) *Error {
+	return &Error{Code: CodeTooManyRequests, Msg: msg, HTTP: http.StatusTooManyRequests}
+}
+
+// 预定义错误。文案面向 C 端用户，避免暴露内部细节。
+var (
+	ErrInternal         = &Error{Code: CodeInternal, Msg: "服务开小差了，请稍后再试", HTTP: http.StatusInternalServerError}
+	ErrInvalidParam     = &Error{Code: CodeInvalidParam, Msg: "参数不合法", HTTP: http.StatusBadRequest}
+	ErrNotFound         = &Error{Code: CodeNotFound, Msg: "资源不存在", HTTP: http.StatusNotFound}
+	ErrTooManyRequests  = &Error{Code: CodeTooManyRequests, Msg: "操作过于频繁，请稍后再试", HTTP: http.StatusTooManyRequests}
+	ErrServiceBusy      = &Error{Code: CodeServiceBusy, Msg: "服务繁忙，请稍后再试", HTTP: http.StatusServiceUnavailable}
+	ErrUnauthorized     = &Error{Code: CodeUnauthorized, Msg: "请先登录", HTTP: http.StatusUnauthorized}
+	ErrTokenExpired     = &Error{Code: CodeTokenExpired, Msg: "登录已过期，请重新登录", HTTP: http.StatusUnauthorized}
+	ErrTokenInvalid     = &Error{Code: CodeTokenInvalid, Msg: "登录凭证无效", HTTP: http.StatusUnauthorized}
+	ErrForbidden        = &Error{Code: CodeForbidden, Msg: "没有操作权限", HTTP: http.StatusForbidden}
+	ErrMethodNotAllowed = &Error{Code: CodeNotFound, Msg: "请求方法不被支持", HTTP: http.StatusMethodNotAllowed}
+)
+
+// 业务预定义错误。
+// 文案直接面向 C 端，所以不写"错误码 20002"这类内部信息，也不暴露数据库细节。
+var (
+	ErrUserNotFound     = &Error{Code: CodeUserNotFound, Msg: "用户不存在", HTTP: http.StatusNotFound}
+	ErrUserBanned       = &Error{Code: CodeUserBanned, Msg: "账号已被封禁，如有疑问请联系客服", HTTP: http.StatusForbidden}
+	ErrRealnameRequired = &Error{Code: CodeRealnameRequired, Msg: "请先完成实名认证", HTTP: http.StatusForbidden}
+	ErrSmsCodeInvalid   = &Error{Code: CodeSmsCodeInvalid, Msg: "验证码不正确或已过期", HTTP: http.StatusBadRequest}
+	ErrSmsTooFrequent   = &Error{Code: CodeSmsTooFrequent, Msg: "验证码发送过于频繁，请稍后再试", HTTP: http.StatusTooManyRequests}
+
+	ErrBlocked              = &Error{Code: CodeBlocked, Msg: "由于对方的隐私设置，暂时无法联系", HTTP: http.StatusForbidden}
+	ErrSensitiveWord        = &Error{Code: CodeSensitiveWord, Msg: "内容包含违规信息，请修改后重试", HTTP: http.StatusBadRequest}
+	ErrReportFailed         = &Error{Code: CodeReportFailed, Msg: "举报提交失败，请稍后再试", HTTP: http.StatusInternalServerError}
+	ErrMessageNotFound      = &Error{Code: CodeMessageNotFound, Msg: "消息不存在或已被删除", HTTP: http.StatusNotFound}
+	ErrMessageRecallExpired = &Error{Code: CodeMessageRecallExpired, Msg: "已超过可撤回时间", HTTP: http.StatusConflict}
+
+	ErrCallBusy         = &Error{Code: CodeCallBusy, Msg: "对方正在通话中，请稍后再拨", HTTP: http.StatusConflict}
+	ErrCallNotFound     = &Error{Code: CodeCallNotFound, Msg: "通话不存在或已结束", HTTP: http.StatusNotFound}
+	ErrCallStateIllegal = &Error{Code: CodeCallStateIllegal, Msg: "当前通话状态不允许该操作", HTTP: http.StatusConflict}
+
+	ErrBalanceNotEnough = &Error{Code: CodeBalanceNotEnough, Msg: "金币不足，请先充值", HTTP: http.StatusPaymentRequired}
+	ErrOrderNotFound    = &Error{Code: CodeOrderNotFound, Msg: "订单不存在", HTTP: http.StatusNotFound}
+	ErrOrderDuplicated  = &Error{Code: CodeOrderDuplicated, Msg: "订单已处理，请勿重复提交", HTTP: http.StatusConflict}
+	ErrPayFailed        = &Error{Code: CodePayFailed, Msg: "支付失败，请稍后重试", HTTP: http.StatusBadGateway}
+)
+
+// From 把任意 error 归一化为 *Error。非业务错误一律按内部错误处理。
+func From(err error) *Error {
+	if err == nil {
+		return nil
+	}
+	var e *Error
+	if errors.As(err, &e) {
+		return e
+	}
+	clone := *ErrInternal
+	clone.Err = err
+	return &clone
+}
+
+// Is 判断错误码是否一致。
+func Is(err error, code Code) bool {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Code == code
+	}
+	return false
+}

@@ -1,0 +1,215 @@
+app:
+  name: datechat-api
+  env: dev
+  addr: ":8080"
+  version: "0.1.0"
+  shutdown_timeout: 10s
+  read_timeout: 15s
+  write_timeout: 30s
+  idle_timeout: 60s
+
+log:
+  level: debug        # debug | info | warn | error
+  format: console     # console | json
+
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  user: datechat
+  password: "datechat_pass"   # 本地 docker-compose 默认口令
+  database: datechat
+  charset: utf8mb4
+  parse_time: true
+  max_open_conns: 100
+  max_idle_conns: 20
+  conn_max_lifetime: 1h
+  conn_max_idle_time: 10m
+  slow_threshold: 200ms
+
+redis:
+  addrs:
+    - "127.0.0.1:6379"
+  password: ""
+  db: 0
+  pool_size: 50
+  dial_timeout: 3s
+  read_timeout: 3s
+  write_timeout: 3s
+
+jwt:
+  secret: "dev-only-secret-change-me-before-prod-32bytes"
+  issuer: datechat
+  access_ttl: 2h
+  refresh_ttl: 720h
+
+rate_limit:
+  enabled: true
+  rps: 50
+  burst: 100
+  ttl: 10m
+
+cors:
+  allow_origins:
+    - "*"
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allow_headers:
+    - Origin
+    - Content-Type
+    - Authorization
+    - X-Request-Id
+    - X-Platform
+    - X-App-Version
+  expose_headers:
+    - X-Request-Id
+  max_age: 12h
+
+# 敏感数据加密密钥（手机号 / 姓名 / 身份证号）。
+# dev 写死便于一条命令跑起来；生产必须由环境变量或 KMS 注入。
+security:
+  data_key: "dev-aes-key-do-not-use-in-production-32"
+  hmac_key: "dev-hmac-key-do-not-use-in-prod"
+
+sms:
+  provider: mock            # mock 只打日志不发真短信；tencent 走腾讯云短信
+  code_length: 6
+  code_ttl: 5m
+  resend_interval: 60s      # 同一手机号两次发送的最小间隔
+  daily_limit: 10           # 单手机号单日上限
+  max_verify_attempts: 5    # 单个验证码允许的最大错误次数
+  expose_code_in_dev: true  # 仅 dev：响应体回带验证码，方便 Flutter 联调
+  tencent:
+    secret_id: "${TENCENT_SMS_SECRET_ID}"
+    secret_key: "${TENCENT_SMS_SECRET_KEY}"
+    sdk_app_id: "${TENCENT_SMS_SDK_APP_ID}"
+    sign_name: "${TENCENT_SMS_SIGN_NAME}"
+    template_id: "${TENCENT_SMS_TEMPLATE_ID}"
+    region: ap-guangzhou
+
+im:
+  sdk_app_id: 1400000000
+  secret_key: "${TENCENT_IM_SECRET_KEY}"
+  admin_user_id: administrator
+  usersig_expire: 168h      # 7 天，与 IM 官方建议一致
+  import_enabled: false     # 配真密钥后开启，登录时把账号导入 IM
+  local_fallback: true      # 仅 dev：无真密钥时写本地镜像，便于端到端验收
+  endpoint: "https://console.tim.qq.com"
+  callback_token: "${TENCENT_IM_CALLBACK_TOKEN}" # 非空时按 sha256(Token+RequestTime) 强制验签
+  callback_max_skew: 1m
+  message_max_chars: 500
+  recall_window: 2m
+
+realname:
+  provider: mock            # mock 直接通过；tencent 走人脸核身
+  enabled: true
+  tencent:
+    secret_id: "${TENCENT_FACEID_SECRET_ID}"
+    secret_key: "${TENCENT_FACEID_SECRET_KEY}"
+    region: ap-guangzhou
+    rule_id: "1"
+    endpoint: "https://faceid.tencentcloudapi.com"
+    redirect_url: "https://app.datechat.example/realname/callback"
+
+# 上传：local 走本地盘（自测/内网联调），cos 走腾讯云对象存储直传。
+# 两种模式对客户端接口完全一致：先拿凭证 → 直传 → 回调提交 URL，
+# 切换 provider 不需要改客户端代码。
+upload:
+  provider: local
+  max_image_mb: 5
+  local:
+    dir: "./.local/uploads"
+    url_prefix: "/static/uploads"
+  cos:
+    secret_id: "${TENCENT_COS_SECRET_ID}"
+    secret_key: "${TENCENT_COS_SECRET_KEY}"
+    region: ap-guangzhou
+    bucket: "${TENCENT_COS_BUCKET}"
+    prefix: "upload/"
+    host: "https://${TENCENT_COS_BUCKET}.cos.ap-guangzhou.myqcloud.com"
+    cdn_domain: ""
+    sign_expire: 30m
+
+# P4：内容安全。默认只开本地 DFA，云审核需要腾讯云密钥。
+moderation:
+  dfa_enabled: true
+  cloud_enabled: false       # 配好 TENCENT_TMS_SECRET_ID/KEY 后可打开
+  cloud_on_unknown: false    # true 表示本地未命中也送云（更准，但有延迟与成本）
+  cloud_fail_open: true      # 云审核失败时放行，避免云抖动导致用户发不出消息
+  tencent:
+    secret_id: "${TENCENT_TMS_SECRET_ID}"
+    secret_key: "${TENCENT_TMS_SECRET_KEY}"
+    region: ap-guangzhou
+    biz_type: ""             # 留空使用控制台默认审核策略
+    endpoint: "tms.tencentcloudapi.com"
+    timeout: 3s
+  report:
+    daily_limit: 20
+    reason_required: false
+
+# P4：运营后台。首次启动会用 bootstrap 账号创建超管，之后应立即从配置移除口令。
+admin:
+  enabled: true
+  token_ttl: 8h
+  bootstrap_user: admin
+  bootstrap_pwd: "${ADMIN_BOOTSTRAP_PASSWORD}"
+
+# P5：支付。未配微信商户密钥时走本地模拟通道（仅 dev 可下单与模拟支付）。
+pay:
+  order_expire_min: 30
+  max_notify_retry: 10
+  reconcile_hours: 24
+  mock_enabled: true        # 允许 /v1/pay/mock/notify 与 mock-paid，便于端到端验收
+  wechat:
+    enabled: false
+    app_id: "${WECHAT_PAY_APP_ID}"
+    mch_id: "${WECHAT_PAY_MCH_ID}"
+    serial_no: "${WECHAT_PAY_SERIAL_NO}"
+    private_key: "${WECHAT_PAY_PRIVATE_KEY}"
+    api_v3_key: "${WECHAT_PAY_API_V3_KEY}"
+    notify_url: "https://api.datechat.example/v1/pay/wechat/notify"
+    pay_scene: app
+
+# P6：实时音视频（TRTC）。未配 sdk_app_id / secret_key 时自动共用 im 的凭据，
+# 因为 TRTC 与 IM 用的是同一套腾讯云 TLS 票据（UserSig 算法一致）。
+trtc:
+  sdk_app_id: 0             # 0 表示复用 im.sdk_app_id
+  secret_key: "${TENCENT_TRTC_SECRET_KEY}"
+  usersig_expire: 24h       # 通话凭据比登录票据短，泄露影响面更小
+  mock_enabled: true        # 无真密钥时下发本地模拟房间，端到端流程仍可验收
+
+# P6：通话与计费。时长全部以服务端时钟为准，客户端上报值只用于展示。
+call:
+  ring_timeout_sec: 45        # 振铃无应答自动超时
+  heartbeat_interval_sec: 10  # 客户端心跳间隔（建议值，下发给客户端）
+  heartbeat_timeout_sec: 30   # 超时未心跳判定掉线并自动挂断
+  max_duration_sec: 3600      # 单通最长时长兜底
+  sweep_interval_sec: 15      # 后台巡检间隔
+  min_coins_to_call: 10       # 低于该余额不允许发起通话
+
+# P7：附近的人与在线。位置只用于排序与距离展示，对外按区间模糊。
+nearby:
+  default_radius_km: 50
+  max_radius_km: 200
+  page_size: 20
+  distance_fuzzy: true      # 对外只给"3km 以内"这类区间，不暴露精确距离
+  online_ttl_sec: 120       # 在线 TTL，需大于心跳间隔的 2 倍
+  min_report_interval_sec: 30
+
+# P8：可观测。/metrics 不挂 JWT，dev 不设令牌方便本地抓取。
+observe:
+  metrics_enabled: true
+  metrics_token: ""
+  slow_request: 1s
+
+# P8：合规开关。
+compliance:
+  min_age: 18
+  realname_required_for_call: true
+  realname_required_for_cash: true
+  max_recharge_fen_per_day: 200000   # 未实名单日充值上限（分），2000 元
+  retention_days: 180
