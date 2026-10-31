@@ -45,3 +45,6 @@ logs/
 
 # 项目本地工作数据（WorkBuddy 会话与记忆）
 .workbuddy/
+
+# 构建产物（APK / 下载包）
+dist/

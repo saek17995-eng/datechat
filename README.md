@@ -23,6 +23,35 @@ Flutter + Go + MySQL + Redis，消息走腾讯 IM，音视频走腾讯 TRTC。
     └── lib/shared          通用组件
 ```
 
+## 在线仓库与 Android 安装包
+
+- 仓库：<https://github.com/saek17995-eng/datechat>
+- 安装包：GitHub Release 里的 `datechat-*.apk`（Android 7.0+ / API 21+，约 20MB）
+
+安装包由 GitHub Actions 自动构建：`.github/workflows/android-apk.yml` 用 Flutter 官方模板
+现生成 `android/` 平台壳 → 补权限与签名 → `flutter build apk --release`，产物作为
+Actions artifact 保留 30 天。推 `app/**` 会自动触发，也可以手动指定后端地址：
+
+```bash
+gh workflow run android-apk.yml \
+  -f api_base_url=https://your-server.com \
+  -f app_name=知聊
+# 下载产物
+gh run download --name datechat-apk-<sha>
+```
+
+**装到手机上要连哪个后端**：默认打进包里的地址是 `https://api.datechat.example`（占位）。
+真机联调时用 `--dart-define=API_BASE_URL=http://192.168.x.x:8080` 重打一包，
+或手动触发工作流时填 `api_base_url`。服务端必须已经部署并可被手机访问，
+`127.0.0.1` 在手机上是手机自己，连不到你的电脑。
+
+关于平台壳：仓库只维护 `app/lib/`，`android/` 不入库（由模板按 SDK 版本现生成，
+避免在仓库里留一堆过期模板文件）。权限与签名由 `scripts/android/prepare_apk.py` 补齐，
+其中最关键的是 **INTERNET —— Flutter 的 release 主 manifest 默认不带，
+不补的话正式包上不了网**。
+
+iOS 包需要 macOS + Xcode + Apple 开发者账号（签名与描述文件），本仓库暂未提供。
+
 ## P0 已交付
 
 - 后端可启动骨架：配置加载、zap 日志、GORM + MySQL、go-redis、优雅退出
