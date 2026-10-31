@@ -1,0 +1,120 @@
+name: Android APK
+
+# 打 Android 安装包。两种触发方式：
+#   1. push 到 app/** 或本文件 —— 自动打一包，方便随时拿到最新产物
+#   2. 手动触发（Actions → Android APK → Run workflow）—— 可以指定后端地址
+#
+# 为什么在 CI 里打而不是本地：仓库不提交 android/ 平台壳（它由 Flutter 模板按
+# SDK 版本现生成），CI 的 ubuntu 机器自带 Android SDK + 稳定的外网，打一包约 6 分钟。
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: '客户端后端地址（写入 --dart-define=API_BASE_URL）'
+        required: false
+        default: 'https://api.datechat.example'
+      app_name:
+        description: '手机上显示的应用名'
+        required: false
+        default: 'datechat'
+  push:
+    paths:
+      - 'app/**'
+      - 'scripts/android/**'
+      - '.github/workflows/android-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17（Flutter 3.x 的 Gradle 需要它）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 版本号（Flutter SDK 版本 + 提交号）
+        id: ver
+        run: |
+          echo "flutter=$(flutter --version | head -1 | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: 生成 android/ 平台壳
+        # 仓库只维护 lib/，平台壳按当前 SDK 模板生成，不写死某个版本的模板文件。
+        run: flutter create --platforms=android --org com.datechat --project-name datechat .
+
+      - name: 补权限与签名配置
+        run: python3 ../scripts/android/prepare_apk.py android
+
+      - name: 生成自签名密钥（demo 分发用；上架请换成自己的正式密钥）
+        working-directory: app/android
+        run: |
+          mkdir -p keys
+          keytool -genkeypair -v \
+            -keystore keys/datechat-release.jks \
+            -keyalg RSA -keysize 2048 -validity 10950 -alias datechat \
+            -storepass datechat -keypass datechat \
+            -dname "CN=datechat, OU=Mobile, O=datechat, L=Beijing, ST=Beijing, C=CN" \
+            > /dev/null
+          cat > key.properties <<'EOF'
+          storeFile=../keys/datechat-release.jks
+          storePassword=datechat
+          keyAlias=datechat
+          keyPassword=datechat
+          EOF
+          echo "密钥已生成（仅存在于本次构建环境，不进仓库）"
+
+      - name: 再补一次签名配置（密钥生成完之后）
+        run: python3 ../scripts/android/prepare_apk.py android
+
+      - name: 应用名
+        run: |
+          NAME="${{ inputs.app_name || 'datechat' }}"
+          sed -i.bak "s|android:label=\"[^\"]*\"|android:label=\"$NAME\"|" \
+            android/app/src/main/AndroidManifest.xml
+          grep -o 'android:label="[^"]*"' android/app/src/main/AndroidManifest.xml
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: 打 release APK
+        run: |
+          URL="${{ inputs.api_base_url || 'https://api.datechat.example' }}"
+          echo "后端地址：$URL"
+          flutter build apk --release --dart-define=API_BASE_URL="$URL"
+
+      - name: 改名带上版本
+        run: |
+          OUT=build/app/outputs/flutter-apk
+          cp "$OUT/app-release.apk" "$OUT/datechat-v0.1.0-${{ steps.ver.outputs.sha }}.apk"
+          ls -lh "$OUT"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: datechat-apk-${{ steps.ver.outputs.sha }}
+          path: app/build/app/outputs/flutter-apk/datechat-*.apk
+          retention-days: 30
+
+      - name: 汇总
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          echo "### Android 安装包已生成 ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Flutter：${{ steps.ver.outputs.flutter }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 提交：\`${{ steps.ver.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 包名：\`com.datechat.datechat\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 体积：$(du -h "$APK" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
