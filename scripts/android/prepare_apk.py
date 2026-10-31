@@ -11,6 +11,9 @@
    附近的人要 ACCESS_COARSE_LOCATION / ACCESS_FINE_LOCATION。
 3. release 默认用 debug key 签名，能装但上不了架；给了 key.properties 就换成正式签名。
 
+构建脚本可能是 Groovy（build.gradle）也可能是 Kotlin DSL（build.gradle.kts）：
+Flutter 3.29 之后的新模板已全面切到 .kts，两种都要支持。
+
 用法：
     python3 scripts/android/prepare_apk.py [android_dir]      # 默认 app/android
 """
@@ -19,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 
-# Android 6.0+ 的危险权限（位置/相机/麦克风）除了声明，还必须在运行时动态申请。
+# Android 6.0+ 的危险权限（位置/相机/麦克风）除了在这里声明，还必须在运行时动态申请。
 # 本脚本只负责声明；运行时申请见 app/lib/features/nearby/location_source.dart 与
 # 通话页的权限请求（真机上不申请的话，Android 会在调用时直接抛 SecurityException）。
 PERMISSIONS = [
@@ -53,7 +56,7 @@ def patch_manifest(path: Path) -> bool:
             print("  ! 没找到 <manifest> 开标签，跳过权限补丁")
             return False
         text = text[: m.end()] + "\n\n" + block + "\n" + text[m.end() :]
-        print(f"  补 {len(missing)} 项权限：{', '.join(m.split('.')[-1] for m in missing)}")
+        print(f"  补 {len(missing)} 项权限：{', '.join(p.split('.')[-1] for p in missing)}")
 
     # 允许明文 HTTP：开发期要连 http://192.168.x.x:8080 这种局域网后端。
     # 走 https 正式环境后建议把这一行去掉（改用 network_security_config 白名单）。
@@ -70,17 +73,67 @@ def patch_manifest(path: Path) -> bool:
     return True
 
 
-def patch_signing(android_dir: Path) -> bool:
-    key_props = android_dir / "key.properties"
-    gradle = android_dir / "app" / "build.gradle"
-    if not key_props.exists():
-        print("  没有 key.properties，保持默认（release 走 debug key，能装但上不了架）")
-        return False
-    if not gradle.exists():
-        print(f"  ! 找不到 {gradle}，跳过签名配置")
-        return False
+def _patch_signing_kts(path: Path) -> bool:
+    """Kotlin DSL（Flutter 3.29+ 的默认模板）。"""
+    text = path.read_text(encoding="utf-8")
+    if 'create("release")' in text:
+        print("  已存在 release 签名配置")
+        return True
 
-    text = gradle.read_text(encoding="utf-8")
+    # import 必须写在文件最前面
+    if "import java.util.Properties" not in text:
+        text = "import java.io.FileInputStream\nimport java.util.Properties\n\n" + text
+
+    loader = """
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+"""
+    m = re.search(r"^plugins\s*\{.*?^\}", text, re.S | re.M)
+    at = m.end() if m else 0
+    text = text[:at] + "\n" + loader + text[at:]
+
+    signing = """
+    signingConfigs {
+        create("release") {
+            storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
+            storePassword = keystoreProperties["storePassword"] as String
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
+        }
+    }
+"""
+    m = re.search(r"^android\s*\{", text, re.M)
+    if not m:
+        print("  ! 没找到 android {} 块，跳过签名配置")
+        return False
+    text = text[: m.end()] + "\n" + signing + text[m.end() :]
+
+    if 'signingConfigs.getByName("debug")' in text:
+        text = text.replace(
+            'signingConfigs.getByName("debug")', 'signingConfigs.getByName("release")'
+        )
+    else:
+        # 模板变了就硬塞一行到 release 块里，并在最后自检
+        m = re.search(r"(release\s*\{)", text)
+        if m:
+            text = (
+                text[: m.end()]
+                + '\n            signingConfig = signingConfigs.getByName("release")'
+                + text[m.end() :]
+            )
+
+    path.write_text(text, encoding="utf-8")
+    ok = 'create("release")' in text and 'getByName("release")' in text
+    print("  已接入 release 正式签名" if ok else "  ! 签名配置写入后自检未通过")
+    return ok
+
+
+def _patch_signing_groovy(path: Path) -> bool:
+    """Groovy（老版本 Flutter 模板）。"""
+    text = path.read_text(encoding="utf-8")
     if "signingConfigs.release" in text:
         print("  已存在 release 签名配置")
         return True
@@ -92,10 +145,9 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 """
-    # 加载器放在 plugins 块之后
     m = re.search(r"^plugins\s*\{.*?^\}", text, re.S | re.M)
-    insert_at = m.end() if m else 0
-    text = text[:insert_at] + "\n" + loader + text[insert_at:]
+    at = m.end() if m else 0
+    text = text[:at] + "\n" + loader + text[at:]
 
     signing = """
     signingConfigs {
@@ -113,17 +165,42 @@ if (keystorePropertiesFile.exists()) {
         return False
     text = text[: m.end()] + "\n" + signing + text[m.end() :]
 
-    # 把模板里那句 "signingConfig = signingConfigs.debug" 换成正式签名
-    text = text.replace(
-        "signingConfig = signingConfigs.debug", "signingConfig = signingConfigs.release"
-    )
-    if "signingConfigs.release" not in text:
+    if "signingConfigs.debug" in text:
+        text = text.replace("signingConfigs.debug", "signingConfigs.release")
+    else:
         m = re.search(r"(release\s*\{)", text)
-        text = text[: m.end()] + "\n            signingConfig signingConfigs.release" + text[m.end():]
+        if m:
+            text = (
+                text[: m.end()]
+                + "\n            signingConfig signingConfigs.release"
+                + text[m.end() :]
+            )
 
-    gradle.write_text(text, encoding="utf-8")
-    print("  已接入 release 正式签名")
-    return True
+    path.write_text(text, encoding="utf-8")
+    ok = "signingConfigs.release" in text
+    print("  已接入 release 正式签名" if ok else "  ! 签名配置写入后自检未通过")
+    return ok
+
+
+def patch_signing(android_dir: Path) -> bool:
+    if not (android_dir / "key.properties").exists():
+        print("  没有 key.properties，保持默认（release 走 debug key，能装但上不了架）")
+        return False
+
+    kts = android_dir / "app" / "build.gradle.kts"
+    groovy = android_dir / "app" / "build.gradle"
+    if kts.exists():
+        return _patch_signing_kts(kts)
+    if groovy.exists():
+        return _patch_signing_groovy(groovy)
+
+    listing = (
+        sorted(p.name for p in (android_dir / "app").iterdir())
+        if (android_dir / "app").exists()
+        else []
+    )
+    print(f"  ! 没找到构建脚本；android/app 下有：{', '.join(listing) or '(空)'}")
+    return False
 
 
 def main() -> int:
