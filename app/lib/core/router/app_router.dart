@@ -101,6 +101,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             peerName: (extra['name'] ?? '').toString(),
             peerAvatar: (extra['avatar'] ?? '').toString(),
             isVideo: extra['video'] == true,
+            incoming: extra['incoming'] == true,
             autoAccept: extra['auto_accept'] == true,
           );
         },

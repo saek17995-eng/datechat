@@ -7,6 +7,8 @@ import 'core/router/app_router.dart';
 import 'core/storage/server_config_store.dart';
 import 'core/storage/token_store.dart';
 import 'core/theme/app_theme.dart';
+import 'features/calls/call_controller.dart';
+import 'features/notifications/communication_service.dart';
 
 /// 启动流程：
 ///   1. 绑定 Flutter 引擎；
@@ -42,13 +44,31 @@ class DateChatApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(communicationBindingProvider);
+    final router = ref.watch(routerProvider);
+    ref.listen(incomingCallProvider, (previous, next) {
+      if (next == null || previous?.callNo == next.callNo) return;
+      // 先把会话交给通话控制器，路由打开后页面只负责展示接听/拒接操作。
+      ref.read(callControllerProvider.notifier).prepareIncoming(next);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        router.push(
+          '/call',
+          extra: <String, dynamic>{
+            'call_no': next.callNo,
+            'name': '用户 ${next.callerId}',
+            'video': next.isVideo,
+            'incoming': true,
+          },
+        );
+      });
+    });
     return MaterialApp.router(
       title: 'DateChat',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.light,
-      routerConfig: ref.watch(routerProvider),
+      routerConfig: router,
     );
   }
 }
