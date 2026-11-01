@@ -94,10 +94,16 @@ jobs:
         # 按 ABI 拆分：通用包 26MB（三种 CPU 架构各塞一份），拆开后 arm64 只有约 7MB，
         # 下载和分发都快得多。绝大多数在用手机都是 arm64。
         run: |
+          set -o pipefail
           URL="${{ inputs.api_base_url || 'https://api.datechat.example' }}"
           echo "后端地址：$URL"
-          flutter build apk --release --split-per-abi --dart-define=API_BASE_URL="$URL"
+          flutter build apk --release --split-per-abi --dart-define=API_BASE_URL="$URL" 2>&1 | tee /tmp/datechat-flutter-build.log
           ls -lh build/app/outputs/flutter-apk/
+
+      - name: 输出失败诊断
+        if: failure()
+        run: |
+          python3 -c 'from pathlib import Path; p=Path("/tmp/datechat-flutter-build.log"); s=p.read_text(errors="replace")[-12000:] if p.exists() else "构建日志文件不存在"; s=s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"); print("::error title=Flutter APK build failure::"+s)'
 
       - name: 改名带上版本
         run: |
