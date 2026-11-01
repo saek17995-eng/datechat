@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:async';
 import 'dart:io';
 
@@ -118,7 +120,7 @@ class CommunicationService {
       final listener = V2TimSimpleMsgListener(
         onRecvC2CTextMessage: (messageId, sender, text) {
           final nickname = (sender.nickName ?? '').trim();
-          final userId = sender.userID ?? '';
+          final userId = sender.userID;
           unawaited(
             _showMessage(
               id: messageId.hashCode,
