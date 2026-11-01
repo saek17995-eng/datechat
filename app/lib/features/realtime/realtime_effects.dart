@@ -2,13 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/di/providers.dart';
 import '../../core/notification/notification_service.dart';
 import '../../core/realtime/realtime_event.dart';
 import '../../core/realtime/realtime_providers.dart';
-import '../../core/realtime/ws_client.dart';
 import '../../core/router/app_router.dart';
 import '../auth/auth_controller.dart';
 import '../chat/chat_controller.dart';

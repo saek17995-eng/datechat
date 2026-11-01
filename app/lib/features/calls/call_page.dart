@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../profile/profile_image.dart';
 import 'call_controller.dart';
-import 'data/call_models.dart';
 import 'data/rtc_bridge.dart';
 
 /// 通话页（语音/视频共用）。
@@ -114,7 +113,7 @@ class _CallPageState extends ConsumerState<CallPage> {
             child: Column(
               children: [
                 if (showVideo)
-                  Expanded(child: _VideoStage(bridge: bridge!))
+                  Expanded(child: _VideoStage(bridge: bridge))
                 else ...[
                   CircleAvatar(
                     radius: 46,
