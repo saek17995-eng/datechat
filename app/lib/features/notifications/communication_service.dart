@@ -31,7 +31,9 @@ final communicationServiceProvider = Provider<CommunicationService>((ref) {
 final communicationBindingProvider = Provider<void>((ref) {
   final auth = ref.watch(authControllerProvider);
   final service = ref.watch(communicationServiceProvider);
-  unawaited(service.updateAuth(auth));
+  // 通知和厂商 IM 都依赖原生插件。部分定制 Android 系统可能拒绝
+  // 权限页面或初始化调用；启动路径必须吞掉这类异常，不能让 App 退出。
+  unawaited(service.updateAuth(auth).catchError((_) {}));
 });
 
 class CommunicationService {
@@ -46,6 +48,7 @@ class CommunicationService {
   Timer? _callTimer;
   int _callUserId = 0;
   bool _notificationReady = false;
+  bool _notificationAttempted = false;
   bool _polling = false;
   bool _nativeImReady = false;
   String _activeUserId = '';
@@ -75,22 +78,25 @@ class CommunicationService {
   }
 
   Future<void> _ensureNotifications() async {
-    if (_notificationReady) return;
-    const settings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-    );
-    await _notifications.initialize(settings: settings);
-    if (Platform.isAndroid) {
-      await _notifications
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestNotificationsPermission();
-      await _notifications
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestFullScreenIntentPermission();
+    if (_notificationReady || _notificationAttempted) return;
+    _notificationAttempted = true;
+    try {
+      const settings = InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      );
+      await _notifications.initialize(settings: settings);
+      if (Platform.isAndroid) {
+        await _notifications
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.requestNotificationsPermission();
+      }
+      _notificationReady = true;
+    } catch (_) {
+      // 通知能力不可用不应阻止登录与主界面启动。尤其不要在冷启动时调用
+      // requestFullScreenIntentPermission：少数厂商 ROM 没有对应设置页，
+      // 原生 ActivityNotFoundException 会直接导致闪退。
     }
-    _notificationReady = true;
   }
 
   Future<bool> _connectNativeIm(ImCredential credential) async {
@@ -255,6 +261,7 @@ class CommunicationService {
     required String payload,
   }) async {
     if (!_notificationReady) await _ensureNotifications();
+    if (!_notificationReady) return;
     const android = AndroidNotificationDetails(
       'datechat_messages',
       '聊天消息',
@@ -276,6 +283,7 @@ class CommunicationService {
 
   Future<void> _showIncomingCall(CallSession call) async {
     if (!_notificationReady) await _ensureNotifications();
+    if (!_notificationReady) return;
     const android = AndroidNotificationDetails(
       'datechat_calls',
       '语音和视频来电',
