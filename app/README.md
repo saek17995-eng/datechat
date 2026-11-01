@@ -42,21 +42,19 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8080
 
 下拉可重新探测。
 
-## 已接入能力（P1–P3）
+## 已接入能力
 
 - P1：手机号登录、双 Token 自动续期、实名状态、IM UserSig 冷启动容错恢复；
 - P2：资料编辑、头像上传、他人主页；
-- P3：会话列表、消息历史、文本发送、已读、撤回、10 秒轮询与未读角标。
+- P3：会话列表、消息历史、文本发送、已读、撤回、腾讯 IM 长连接和 Android 系统通知；IM 未配置时自动回退到 10 秒轮询。
+- P6：腾讯 TRTC 语音/视频进房、麦克风与扬声器控制、远端画面，以及来电检测和锁屏来电通知。
 
-P3 当前使用“Flutter → 自家 Go REST → 腾讯云 IM REST”的传输门面，不引入原生 TIM 插件；
-因此 Web 与离线静态分析可直接运行。需要原生长连接、即时推送和 SDK 本地缓存时，再接
-`tencent_cloud_chat_sdk`，现有页面/状态层与服务端回调镜像可继续复用。
+Android 进程存活时，IM 长连接或 REST 轮询会生成本地系统通知。若要在 App 被系统彻底结束后仍能收到离线推送，还需在腾讯云 IM 控制台配置应用商店/厂商推送证书，并将控制台下载的 `timpush-configs.json` 接入 Android 平台壳。
 
 ## 后续接入（按阶段）
 
 | 阶段 | 会新增的依赖 | 说明 |
 |---|---|---|
 | P1.5 | `flutter_secure_storage` | 用系统安全区替换 SharedPreferences 存令牌 |
-| P3.5（可选） | `tencent_cloud_chat_sdk` | 原生长连接推送；当前 REST + 轮询链路已可用 |
-| P6 | `trtc_cloud_plugin` | 语音/视频通话 |
+| P3.5（上线前） | `tencent_cloud_chat_push` + `timpush-configs.json` | App 进程被结束后的厂商离线推送 |
 | P7 | `geolocator`、`permission_handler` | 定位与权限 |

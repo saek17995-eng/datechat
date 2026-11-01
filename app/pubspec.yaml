@@ -19,6 +19,14 @@ dependencies:
   shared_preferences: ^2.3.3
   intl: ^0.19.0
   cupertino_icons: ^1.0.8
+  # 腾讯云原生长连接：登录后即时接收消息，替代仅靠 10 秒轮询。
+  tencent_cloud_chat_sdk: ^9.1.7822
+  # 腾讯云实时音视频：使用服务端下发的 SDKAppID / UserSig 进入 TRTC 房间。
+  tencent_rtc_sdk: ^13.5.2
+  # Android 相机、麦克风与通知运行时授权。
+  permission_handler: ^13.0.2
+  # 前台/后台收到 IM 消息时显示安卓系统通知。
+  flutter_local_notifications: ^22.3.3
 
 dev_dependencies:
   flutter_test:

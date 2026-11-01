@@ -117,10 +117,12 @@ cmd_check() {
   if [ "$env" = "prod" ]; then
     # 数字型
     check_num "TENCENT_IM_SDK_APP_ID" "IM 应用 SDKAppID（控制台基本信息页）"
+    check_num "TENCENT_TRTC_SDK_APP_ID" "TRTC 应用 SDKAppID（与 IM 同应用时应一致）"
     check_num "TENCENT_SMS_SDK_APP_ID" "短信 SDKAppID"
     # 字符串型
     check_len "TENCENT_IM_SECRET_KEY" 16 "IM 应用密钥（泄露可被冒名收发消息）"
     check_len "TENCENT_IM_CALLBACK_TOKEN" 8 "IM 回调 Token，需与控制台配置一致"
+    check_len "TENCENT_TRTC_SECRET_KEY" 16 "TRTC 进房 UserSig 应用密钥"
     check_len "TENCENT_SMS_SECRET_ID" 8 "短信 SecretId"
     check_len "TENCENT_SMS_SECRET_KEY" 16 "短信 SecretKey"
     check_len "TENCENT_FACEID_SECRET_ID" 8 "人脸核身 SecretId"

@@ -34,6 +34,10 @@ PERMISSIONS = [
     "android.permission.RECORD_AUDIO",
     "android.permission.MODIFY_AUDIO_SETTINGS",
     "android.permission.VIBRATE",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.BLUETOOTH",
+    "android.permission.BLUETOOTH_CONNECT",
+    "android.permission.USE_FULL_SCREEN_INTENT",
 ]
 
 
@@ -68,6 +72,16 @@ def patch_manifest(path: Path) -> bool:
             count=1,
         )
         print("  已开启 usesCleartextTraffic（便于连 http 测试后端）")
+
+    # 来电通知点亮锁屏并打开接听页。只补主 Activity，不扩大到其他组件。
+    if "android:showWhenLocked" not in text and "<activity" in text:
+        text = re.sub(
+            r"<activity\b",
+            '<activity\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"',
+            text,
+            count=1,
+        )
+        print("  已允许来电页在锁屏上显示并点亮屏幕")
 
     path.write_text(text, encoding="utf-8")
     return True
@@ -203,10 +217,56 @@ def patch_signing(android_dir: Path) -> bool:
     return False
 
 
+def patch_gradle(android_dir: Path) -> bool:
+    """为通知插件补 Java 17 desugaring；同时兼容 Kotlin/Groovy 模板。"""
+    kts = android_dir / "app" / "build.gradle.kts"
+    groovy = android_dir / "app" / "build.gradle"
+    path = kts if kts.exists() else groovy
+    if not path.exists():
+        print("  ! 没找到 app Gradle 文件，跳过 desugaring")
+        return False
+    text = path.read_text(encoding="utf-8")
+    is_kts = path.suffix == ".kts"
+
+    flag = (
+        "isCoreLibraryDesugaringEnabled = true"
+        if is_kts
+        else "coreLibraryDesugaringEnabled true"
+    )
+    if flag not in text:
+        marker = re.search(r"compileOptions\s*\{", text)
+        if marker:
+            text = text[: marker.end()] + "\n        " + flag + text[marker.end() :]
+        else:
+            android = re.search(r"android\s*\{", text)
+            if not android:
+                print("  ! 没找到 android {}，跳过 desugaring")
+                return False
+            block = f"\n    compileOptions {{\n        {flag}\n    }}\n"
+            text = text[: android.end()] + block + text[android.end() :]
+
+    dependency = (
+        'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+        if is_kts
+        else "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+    )
+    if "desugar_jdk_libs" not in text:
+        deps = re.search(r"dependencies\s*\{", text)
+        if deps:
+            text = text[: deps.end()] + "\n    " + dependency + text[deps.end() :]
+        else:
+            text += f"\n\ndependencies {{\n    {dependency}\n}}\n"
+
+    path.write_text(text, encoding="utf-8")
+    print(f"  已为 {path.name} 开启 coreLibraryDesugaring")
+    return True
+
+
 def main() -> int:
     android_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "app/android")
     print(f"准备 Android 壳：{android_dir}")
     patch_manifest(android_dir / "app" / "src" / "main" / "AndroidManifest.xml")
+    patch_gradle(android_dir)
     patch_signing(android_dir)
     print("完成")
     return 0

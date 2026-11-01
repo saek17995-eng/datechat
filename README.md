@@ -187,7 +187,7 @@ bash scripts/verify-p2.sh        # 24 项断言，本机实测全绿
 1. 设置真实 `sdk_app_id / secret_key`，开启 `import_enabled`，关闭 `local_fallback`；
 2. 在腾讯云 IM 控制台设置公网 HTTPS 回调地址 `https://<域名>/v1/im/callback`，开启回调鉴权并把 Token 写入 `TENCENT_IM_CALLBACK_TOKEN`；
 3. 启用“发单聊消息之前 / 之后”以及所需已读回调，并关闭“允许客户端禁用前后回调/审核”；
-4. 当前 Flutter 采用“自家 REST 门面 + 10 秒轮询”，不含原生 TIM SDK，因此无需插件即可跑 Web/静态分析；需要长连接即时推送时可在后续接原生 SDK，服务端回调、审核、镜像与撤回接口无需重写。
+4. Android Flutter 已接原生 TIM SDK：有真实 UserSig 时用长连接收消息并显示系统通知，未配 IM 时自动回退到 10 秒轮询。App 进程彻底结束后的离线推送还需控制台厂商证书和 `timpush-configs.json`。
 
 > 腾讯云官方文档说明：消息前回调超时只有 2 秒；自 2026-10-01 起，专业版该能力为独立增值项，开发版/旗舰版/企业版政策不同，上线前需按实际套餐确认。
 
@@ -307,7 +307,7 @@ bash scripts/verify-p6.sh    # 完整跑完约 90 秒（需要真实跨过一分
 
 覆盖：定价查询、并发呼叫被拒、接通即扣、心跳幂等、挂断结算与三项一致性、被叫收益、**余额耗尽自动挂断**、心跳超时由服务端兜底、账本对账、拉黑后禁止呼叫。
 
-> 真实音视频（两台手机互相听见）需要 TRTC 密钥 + 客户端集成 `tencent_trtc_cloud`；当前客户端用 `RtcBridge` 做了桥接，模拟房间下业务链路（呼叫/计费/挂断）可完整验收，真实凭据会明确提示"尚未集成原生 SDK"而不是静默黑屏。
+> Android 客户端已集成 `tencent_rtc_sdk`，可用服务端下发的 SDKAppID / UserSig 进入真实语音、视频房间。要两台手机真正互听互见，必须配置 `TENCENT_TRTC_SECRET_KEY`（或复用同应用的 IM 密钥）并关闭 `trtc.mock_enabled`；模拟房间只验收呼叫与计费链路。
 
 ## P7 已交付（LBS 与在线）
 
@@ -514,6 +514,7 @@ flutter run                       # 默认连 http://127.0.0.1:8080
 | `JWT_SECRET` | 覆盖 JWT 密钥 | - |
 | `TENCENT_IM_SECRET_KEY` | 腾讯云 IM UserSig 与服务端 REST 密钥 | 空（dev 使用 local fallback） |
 | `TENCENT_IM_CALLBACK_TOKEN` | 腾讯云 IM 回调应用层签名 Token | 空（生产必填） |
+| `TENCENT_TRTC_SECRET_KEY` | 腾讯云 TRTC 进房 UserSig 密钥 | 空（dev 使用 mock room） |
 
 配置文件中支持 `${VAR}` 语法，加载时做环境变量展开。
 

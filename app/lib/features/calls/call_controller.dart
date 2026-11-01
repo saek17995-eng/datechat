@@ -89,12 +89,14 @@ class CallState {
     bool? speakerOn,
     int? endReason,
     String? error,
+    bool clearSession = false,
+    bool clearTicket = false,
     bool clearError = false,
   }) {
     return CallState(
       phase: phase ?? this.phase,
-      session: session ?? this.session,
-      ticket: ticket ?? this.ticket,
+      session: clearSession ? null : (session ?? this.session),
+      ticket: clearTicket ? null : (ticket ?? this.ticket),
       peerName: peerName ?? this.peerName,
       peerAvatar: peerAvatar ?? this.peerAvatar,
       isCaller: isCaller ?? this.isCaller,
@@ -117,7 +119,7 @@ class CallState {
 /// 三个定时器，各司其职，互不干扰：
 ///   - 界面计时：1 秒一次，只更新展示的 mm:ss；
 ///   - 心跳：按服务端下发的间隔上报，把"续扣/余额耗尽"的结果带回来；
-///   - 房间：由 [RtcBridge] 负责进房/退房，失败不影响计费链路继续。
+///   - 房间：由 [RtcBridge] 负责进房/退房；接听后进房失败会立即挂断，避免继续计费。
 ///
 /// 心跳失败不立刻挂断：弱网下丢一两次心跳很常见，直接挂断等于惩罚网络差的用户。
 /// 真正的收尾由服务端心跳超时兜底，客户端只是"跟随"服务端的结论。
@@ -128,6 +130,36 @@ class CallController extends StateNotifier<CallState> {
   Timer? _uiTimer;
   Timer? _beatTimer;
   RtcBridge? _bridge;
+  bool _endingForRtcError = false;
+
+  RtcBridge? get bridge => _bridge;
+
+  /// 被叫端发现服务端存在振铃中的会话后，先展示接听/拒绝界面。
+  /// 真正进房与开始计费只发生在用户点击接听之后。
+  void prepareIncoming(
+    CallSession session, {
+    String peerName = '',
+    String peerAvatar = '',
+  }) {
+    if (state.callNo == session.callNo && state.phase == CallPhase.ringing) {
+      return;
+    }
+    state = state.copyWith(
+      phase: CallPhase.ringing,
+      session: session,
+      peerName: peerName,
+      peerAvatar: peerAvatar,
+      isCaller: false,
+      isVideo: session.isVideo,
+      pricePerMin: session.pricePerMin,
+      elapsedSec: 0,
+      chargedMinutes: session.chargedMinutes,
+      totalCoins: session.totalCoins,
+      endReason: 0,
+      clearTicket: true,
+      clearError: true,
+    );
+  }
 
   /// 主叫：发起通话。
   Future<bool> start({
@@ -142,13 +174,19 @@ class CallController extends StateNotifier<CallState> {
       peerAvatar: peerAvatar,
       isCaller: true,
       isVideo: video,
+      elapsedSec: 0,
+      chargedMinutes: 0,
+      totalCoins: 0,
+      endReason: 0,
+      clearSession: true,
+      clearTicket: true,
       clearError: true,
     );
     try {
       final result = await _ref
           .read(callApiProvider)
           .create(calleeId, mediaType: video ? mediaVideo : mediaAudio);
-      _apply(result, ringing: true);
+      _apply(result);
       return true;
     } on ApiException catch (error) {
       state = state.copyWith(
@@ -178,11 +216,16 @@ class CallController extends StateNotifier<CallState> {
       peerAvatar: peerAvatar,
       isCaller: false,
       isVideo: video,
+      elapsedSec: 0,
+      chargedMinutes: 0,
+      totalCoins: 0,
+      endReason: 0,
+      clearTicket: true,
       clearError: true,
     );
     try {
       final result = await _ref.read(callApiProvider).accept(callNo);
-      _apply(result, ringing: false);
+      _apply(result);
       return true;
     } on ApiException catch (error) {
       state = state.copyWith(phase: CallPhase.ended, error: error.message);
@@ -257,13 +300,14 @@ class CallController extends StateNotifier<CallState> {
     }
   }
 
-  void _apply(CallJoinResult result, {required bool ringing}) {
+  void _apply(CallJoinResult result) {
     final session = result.session;
-    _bridge = RtcBridge.fromTicket(result.ticket);
-    // 进房失败不影响计费链路：房间只是音视频载体，账单由服务端独立推进。
-    unawaited(
-      _bridge!.enterRoom(result.ticket).catchError((Object _) {}),
-    );
+    _bridge?.removeListener(_handleRtcState);
+    _bridge?.dispose();
+    _endingForRtcError = false;
+    _bridge = RtcBridge.fromTicket(result.ticket, video: session.isVideo);
+    _bridge!.addListener(_handleRtcState);
+    unawaited(_enterRtc(result.ticket, session.isTalking));
 
     state = state.copyWith(
       phase: session.isTalking ? CallPhase.talking : CallPhase.ringing,
@@ -279,6 +323,32 @@ class CallController extends StateNotifier<CallState> {
     if (session.isTalking) {
       _startBeatTimer(result.heartbeatIntervalSec);
     }
+  }
+
+  Future<void> _enterRtc(CallTicket ticket, bool alreadyTalking) async {
+    try {
+      await _bridge?.enterRoom(ticket);
+    } catch (error) {
+      state = state.copyWith(
+        error: error.toString().replaceFirst('Bad state: ', ''),
+      );
+      // 接听后已经开始计费，进房失败必须主动挂断，不能让用户无声被扣费。
+      if (alreadyTalking) await _endForRtcError();
+    }
+  }
+
+  void _handleRtcState() {
+    final error = _bridge?.lastError;
+    if (error == null || error.isEmpty) return;
+    state = state.copyWith(error: error);
+    // TRTC 的 onError 表示不可恢复错误；已接通时立即停止计费链路。
+    if (state.phase == CallPhase.talking) unawaited(_endForRtcError());
+  }
+
+  Future<void> _endForRtcError() async {
+    if (_endingForRtcError) return;
+    _endingForRtcError = true;
+    await hangup();
   }
 
   void _startUiTimer() {
@@ -348,6 +418,7 @@ class CallController extends StateNotifier<CallState> {
   @override
   void dispose() {
     _stopTimers();
+    _bridge?.removeListener(_handleRtcState);
     unawaited(_bridge?.leaveRoom().catchError((Object _) {}));
     super.dispose();
   }

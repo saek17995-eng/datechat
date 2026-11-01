@@ -8,6 +8,7 @@ import '../profile/profile_image.dart';
 import 'call_controller.dart';
 import 'data/call_models.dart';
 import 'data/rtc_bridge.dart';
+import 'rtc_video_panel.dart';
 
 /// 通话页（语音/视频共用）。
 ///
@@ -22,6 +23,7 @@ class CallPage extends ConsumerStatefulWidget {
     this.peerName = '',
     this.peerAvatar = '',
     this.isVideo = false,
+    this.incoming = false,
     this.autoAccept = false,
   });
 
@@ -33,6 +35,7 @@ class CallPage extends ConsumerStatefulWidget {
   final String peerName;
   final String peerAvatar;
   final bool isVideo;
+  final bool incoming;
 
   /// true 表示被叫从"来电"入口进入，页面初始化时自动接听。
   final bool autoAccept;
@@ -52,7 +55,16 @@ class _CallPageState extends ConsumerState<CallPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_started) return;
       _started = true;
-      if (widget.autoAccept) {
+      if (widget.incoming && !widget.autoAccept) {
+        final current = ref.read(callControllerProvider).session;
+        if (current != null && current.callNo == widget.callNo) {
+          ref.read(callControllerProvider.notifier).prepareIncoming(
+                current,
+                peerName: widget.peerName,
+                peerAvatar: widget.peerAvatar,
+              );
+        }
+      } else if (widget.autoAccept) {
         unawaited(_accept());
       } else {
         unawaited(_start());
@@ -93,6 +105,7 @@ class _CallPageState extends ConsumerState<CallPage> {
     final talking = state.phase == CallPhase.talking;
     final ringing = state.phase == CallPhase.ringing;
     final ended = state.phase == CallPhase.ended;
+    final bridge = ref.read(callControllerProvider.notifier).bridge;
 
     return PopScope(
       // 通话中禁止用系统返回键离开：离开了心跳还在跑，用户会莫名被扣费。
@@ -108,15 +121,22 @@ class _CallPageState extends ConsumerState<CallPage> {
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 46,
-                  backgroundImage: widget.peerAvatar.isNotEmpty
-                      ? NetworkImage(ProfileImage.absUrl(widget.peerAvatar))
-                      : null,
-                  child: widget.peerAvatar.isEmpty
-                      ? const Icon(Icons.person, size: 40)
-                      : null,
-                ),
+                if (widget.isVideo && bridge != null && bridge.available)
+                  SizedBox(
+                    height: 300,
+                    width: double.infinity,
+                    child: RtcVideoPanel(bridge: bridge),
+                  )
+                else
+                  CircleAvatar(
+                    radius: 46,
+                    backgroundImage: widget.peerAvatar.isNotEmpty
+                        ? NetworkImage(ProfileImage.absUrl(widget.peerAvatar))
+                        : null,
+                    child: widget.peerAvatar.isEmpty
+                        ? const Icon(Icons.person, size: 40)
+                        : null,
+                  ),
                 const SizedBox(height: 16),
                 Text(
                   widget.peerName.isEmpty ? '对方' : widget.peerName,
@@ -125,7 +145,7 @@ class _CallPageState extends ConsumerState<CallPage> {
                 const SizedBox(height: 8),
                 _StatusLine(state: state),
                 const SizedBox(height: 12),
-                _EngineHint(ticket: state.ticket),
+                _EngineHint(ticket: state.ticket, bridge: bridge),
                 const Spacer(),
                 if (!ended)
                   Text(
@@ -200,44 +220,57 @@ class _StatusLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final text = switch (state.phase) {
-      CallPhase.idle || CallPhase.dialing => '正在呼叫…',
-      CallPhase.ringing => state.isCaller ? '等待对方接听…' : '来电',
-      CallPhase.talking => '通话中',
-      CallPhase.ended => state.session?.endReasonText.isNotEmpty == true
-          ? state.session!.endReasonText
-          : '通话已结束',
-    };
+    final error = state.error?.trim() ?? '';
+    final text = error.isNotEmpty
+        ? error
+        : switch (state.phase) {
+            CallPhase.idle || CallPhase.dialing => '正在呼叫…',
+            CallPhase.ringing => state.isCaller ? '等待对方接听…' : '来电',
+            CallPhase.talking => '通话中',
+            CallPhase.ended => state.session?.endReasonText.isNotEmpty == true
+                ? state.session!.endReasonText
+                : '通话已结束',
+          };
     return Text(
       text,
+      textAlign: TextAlign.center,
       style: theme.textTheme.bodyMedium?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
+        color: error.isNotEmpty
+            ? theme.colorScheme.error
+            : theme.colorScheme.onSurfaceVariant,
       ),
     );
   }
 }
 
 class _EngineHint extends StatelessWidget {
-  const _EngineHint({required this.ticket});
+  const _EngineHint({required this.ticket, required this.bridge});
 
   final CallTicket? ticket;
+  final RtcBridge? bridge;
 
   @override
   Widget build(BuildContext context) {
     if (ticket == null) return const SizedBox.shrink();
-    final bridge = RtcBridge.fromTicket(ticket!);
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        bridge.hint,
-        style: theme.textTheme.bodySmall,
-      ),
-    );
+    Widget content() {
+      final theme = Theme.of(context);
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          bridge?.hint ?? '正在准备音视频引擎…',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall,
+        ),
+      );
+    }
+
+    final engine = bridge;
+    if (engine == null) return content();
+    return AnimatedBuilder(animation: engine, builder: (_, __) => content());
   }
 }
 

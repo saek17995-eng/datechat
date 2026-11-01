@@ -92,12 +92,12 @@ sms:
     region: ap-guangzhou
 
 im:
-  sdk_app_id: 1400000000
+  sdk_app_id: ${TENCENT_IM_SDK_APP_ID}
   secret_key: "${TENCENT_IM_SECRET_KEY}"
   admin_user_id: administrator
   usersig_expire: 168h      # 7 天，与 IM 官方建议一致
-  import_enabled: false     # 配真密钥后开启，登录时把账号导入 IM
-  local_fallback: true      # 仅 dev：无真密钥时写本地镜像，便于端到端验收
+  import_enabled: true      # 登录时把账号导入已开通的腾讯云 IM
+  local_fallback: false     # 已配置真实 IM，不再写入本地消息镜像
   endpoint: "https://console.tim.qq.com"
   callback_token: "${TENCENT_IM_CALLBACK_TOKEN}" # 非空时按 sha256(Token+RequestTime) 强制验签
   callback_max_skew: 1m
@@ -177,10 +177,10 @@ pay:
 # P6：实时音视频（TRTC）。未配 sdk_app_id / secret_key 时自动共用 im 的凭据，
 # 因为 TRTC 与 IM 用的是同一套腾讯云 TLS 票据（UserSig 算法一致）。
 trtc:
-  sdk_app_id: 0             # 0 表示复用 im.sdk_app_id
+  sdk_app_id: ${TENCENT_TRTC_SDK_APP_ID} # 0 或空表示复用 im.sdk_app_id
   secret_key: "${TENCENT_TRTC_SECRET_KEY}"
   usersig_expire: 24h       # 通话凭据比登录票据短，泄露影响面更小
-  mock_enabled: true        # 无真密钥时下发本地模拟房间，端到端流程仍可验收
+  mock_enabled: false       # 已开通真实 TRTC 应用，签发正式进房票据
 
 # P6：通话与计费。时长全部以服务端时钟为准，客户端上报值只用于展示。
 call:
