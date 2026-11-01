@@ -90,6 +90,32 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
+      - name: 兼容腾讯 RTC 插件的旧 compileSdk
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          roots = list(Path(os.environ["PUB_CACHE"]).glob(
+              "hosted/*/tencent_rtc_sdk-*/android/build.gradle*"
+          ))
+          if not roots:
+              raise SystemExit("未找到 tencent_rtc_sdk Android 构建文件")
+          for path in roots:
+              text = path.read_text()
+              patched = re.sub(
+                  r"compileSdkVersion\s*(?:=\s*)?31\b",
+                  "compileSdkVersion 36",
+                  text,
+              )
+              patched = re.sub(r"compileSdk\s*=\s*31\b", "compileSdk = 36", patched)
+              if patched == text:
+                  raise SystemExit(f"{path} 中没有预期的 compileSdk 31")
+              path.write_text(patched)
+              print(f"已修正 {path} -> compileSdk 36")
+          PY
+
       - name: 打 release APK
         # 按 ABI 拆分：通用包 26MB（三种 CPU 架构各塞一份），拆开后 arm64 只有约 7MB，
         # 下载和分发都快得多。绝大多数在用手机都是 arm64。
