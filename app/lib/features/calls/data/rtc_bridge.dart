@@ -14,6 +14,8 @@ import 'call_models.dart';
 /// 业务层仍只认识服务端签发的 [CallTicket]，腾讯 SDK 的生命周期、权限、
 /// 音频路由和远端画面都封装在这里，避免计费状态机依赖厂商 API。
 abstract class RtcBridge extends ChangeNotifier {
+  RtcBridge();
+
   bool get available;
   bool get initialized;
   bool get isVideo;
@@ -32,8 +34,8 @@ abstract class RtcBridge extends ChangeNotifier {
     CallTicket ticket, {
     required bool video,
   }) {
-    if (ticket.mock) return MockRtcBridge(video: video);
-    return TencentRtcBridge(video: video);
+    if (ticket.mock) return MockRtcBridge(isVideo: video);
+    return TencentRtcBridge(isVideo: video);
   }
 }
 

@@ -103,7 +103,7 @@ jobs:
       - name: 输出失败诊断
         if: failure()
         run: |
-          python3 -c 'from pathlib import Path; p=Path("/tmp/datechat-flutter-build.log"); s=p.read_text(errors="replace")[-12000:] if p.exists() else "构建日志文件不存在"; s=s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"); print("::error title=Flutter APK build failure::"+s)'
+          python3 -c 'from pathlib import Path; p=Path("/tmp/datechat-flutter-build.log"); s=p.read_text(errors="replace")[-3500:] if p.exists() else "构建日志文件不存在"; s=s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"); print("::error title=Flutter APK build failure::"+s)'
 
       - name: 改名带上版本
         run: |
