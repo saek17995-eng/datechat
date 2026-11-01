@@ -90,6 +90,12 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
+      - name: 抬高插件 compileSdk
+        # 腾讯 RTC 插件的 build.gradle 写死 compileSdkVersion 31，但它依赖的
+        # androidx 组件要求使用方 ≥33，Gradle 的 checkReleaseAarMetadata 会失败。
+        # 插件是第三方代码，只能在 pub get 之后、build 之前改本地缓存。
+        run: python3 ../scripts/android/patch_plugin_compile_sdk.py
+
       - name: 打 release APK
         # 按 ABI 拆分：通用包 26MB（三种 CPU 架构各塞一份），拆开后 arm64 只有约 7MB，
         # 下载和分发都快得多。绝大多数在用手机都是 arm64。
