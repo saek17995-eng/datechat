@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// 本地通知。
 ///
@@ -43,7 +44,8 @@ class NotificationService {
       requestSoundPermission: true,
     );
     await _plugin.initialize(
-      const InitializationSettings(android: android, iOS: ios),
+      // v22 起 initialize / show / cancel 全部改成命名参数（旧的位置参数写法会编译失败）。
+      settings: const InitializationSettings(android: android, iOS: ios),
       onDidReceiveNotificationResponse: (response) => onTap?.call(response.payload),
     );
 
@@ -66,10 +68,10 @@ class NotificationService {
   }) async {
     if (!_initialized) return;
     await _plugin.show(
-      peerUid,
-      title,
-      body,
-      NotificationDetails(
+      id: peerUid,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           messageChannel.id,
           messageChannel.name,
@@ -94,10 +96,10 @@ class NotificationService {
   }) async {
     if (!_initialized) return;
     await _plugin.show(
-      1000000 + peerUid,
-      title,
-      body,
-      NotificationDetails(
+      id: 1000000 + peerUid,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           callChannel.id,
           callChannel.name,
@@ -120,7 +122,7 @@ class NotificationService {
 
   Future<void> cancel(int id) async {
     if (!_initialized) return;
-    await _plugin.cancel(id);
+    await _plugin.cancel(id: id);
   }
 
   Future<void> cancelAll() async {

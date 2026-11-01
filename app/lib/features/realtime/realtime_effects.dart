@@ -52,7 +52,8 @@ class _RealtimeEffectsState extends ConsumerState<RealtimeEffects>
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  // ConsumerState 的 build 只收 context（ref 是它的字段，不是在参数里传进来的）。
+  Widget build(BuildContext context) {
     // 登录态变化：登录成功后连接，退出登录后断开。
     ref.listen<AuthState>(authControllerProvider, (_, __) => _syncConnection());
     // 用户在设置里改了后端地址：必须重连，否则还在连老地址。
@@ -134,7 +135,7 @@ class _RealtimeEffectsState extends ConsumerState<RealtimeEffects>
     }
     if (!mounted) return;
 
-    ref.read(routerProvider).push(
+    unawaited(ref.read(routerProvider).push(
       '/call',
       extra: <String, dynamic>{
         'uid': caller,
@@ -144,7 +145,7 @@ class _RealtimeEffectsState extends ConsumerState<RealtimeEffects>
         'video': video,
         'auto_accept': false,
       },
-    );
+    ));
 
     await ref.read(notificationServiceProvider).showIncomingCall(
           peerUid: caller,

@@ -124,7 +124,7 @@ class WsClient {
         headers: <String, dynamic>{'Authorization': 'Bearer $token'},
       ).timeout(const Duration(seconds: 10));
       if (_disposed || !_wantConnected) {
-        socket.close();
+        unawaited(socket.close());
         return;
       }
       _socket = socket;

@@ -63,7 +63,11 @@ jobs:
 
       - name: 生成 android/ 平台壳
         # 仓库只维护 lib/，平台壳按当前 SDK 模板生成，不写死某个版本的模板文件。
-        run: flutter create --platforms=android --org com.datechat --project-name datechat .
+        run: |
+          flutter create --platforms=android --org com.datechat --project-name datechat .
+          # 模板会顺手塞一个引用 MyApp 的 widget_test.dart（本项目的根组件叫 DateChatApp），
+          # 留着它会让静态分析直接失败，而且它本来就什么都不测。
+          rm -f test/widget_test.dart
 
       - name: 补权限与签名配置
         run: python3 ../scripts/android/prepare_apk.py android
@@ -102,7 +106,7 @@ jobs:
       # 分析放在打包之前：编译能过不代表没有未定义符号，
       # 这类问题在真机上表现为一点某个功能就崩，排查成本高得多。
       - name: 静态分析
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze lib test --no-fatal-infos
 
       - name: 打 release APK
         # 按 ABI 拆分：通用包 26MB（三种 CPU 架构各塞一份），拆开后 arm64 只有约 7MB，

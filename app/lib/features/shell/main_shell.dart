@@ -28,7 +28,8 @@ class MainShell extends ConsumerWidget {
           index,
           initialLocation: index == shell.currentIndex,
         ),
-        destinations: const [
+        // 这里不能用 const：消息图标要按运行时未读数变化
+        destinations: [
           NavigationDestination(
             icon: Icon(Icons.explore_outlined),
             selectedIcon: Icon(Icons.explore),
