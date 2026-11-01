@@ -241,11 +241,63 @@ def patch_min_sdk(android_dir: Path) -> bool:
     return False
 
 
+DESUGAR_KTS = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+DESUGAR_GROOVY = "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+
+
+def patch_desugaring(android_dir: Path) -> bool:
+    """开启 core library desugaring。
+
+    flutter_local_notifications 用到了 java.time，在低版本 Android 上靠脱糖支持。
+    不开的话 Gradle 在 checkReleaseAarMetadata 阶段直接失败，而且报错只说
+    "requires core library desugaring"，不看这段根本不知道该改哪儿。
+    """
+    for name, flag, dep in (
+        ("build.gradle.kts", "        isCoreLibraryDesugaringEnabled = true", DESUGAR_KTS),
+        ("build.gradle", "        coreLibraryDesugaringEnabled true", DESUGAR_GROOVY),
+    ):
+        path = android_dir / "app" / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "isCoreLibraryDesugaringEnabled" in text or "coreLibraryDesugaringEnabled" in text:
+            print("  已开启 core library desugaring")
+            return True
+
+        block = "compileOptions {"
+        idx = text.find(block)
+        if idx >= 0:
+            at = idx + len(block)
+            text = text[:at] + "\n" + flag + text[at:]
+        else:
+            m = re.search(r"^android\s*\{", text, re.M)
+            if not m:
+                print("  ! 没找到 android {} 块，跳过 desugaring 补丁")
+                return False
+            text = (
+                text[: m.end()]
+                + "\n    compileOptions {\n"
+                + flag
+                + "\n    }"
+                + text[m.end() :]
+            )
+
+        # 依赖块单独追加：Gradle 允许多个 dependencies {}，比往已有块里插更安全。
+        if "desugar_jdk_libs" not in text:
+            text = text.rstrip() + "\n\ndependencies {\n" + dep + "\n}\n"
+        path.write_text(text, encoding="utf-8")
+        print("  已开启 core library desugaring（通知插件需要 java.time）")
+        return True
+    print("  ! 没找到构建脚本，跳过 desugaring 补丁")
+    return False
+
+
 def main() -> int:
     android_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "app/android")
     print(f"准备 Android 壳：{android_dir}")
     patch_manifest(android_dir / "app" / "src" / "main" / "AndroidManifest.xml")
     patch_min_sdk(android_dir)
+    patch_desugaring(android_dir)
     patch_signing(android_dir)
     print("完成")
     return 0
