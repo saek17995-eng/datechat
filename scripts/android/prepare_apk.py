@@ -262,11 +262,66 @@ def patch_gradle(android_dir: Path) -> bool:
     return True
 
 
+def patch_compile_sdk(android_dir: Path) -> bool:
+    """把 compileSdk 提到 37。
+
+    为什么需要它：permission_handler_android 13.x 的 AAR 元数据要求使用方
+    compileSdk ≥ 37，而 Flutter 当前模板给的是 flutter.compileSdkVersion（36），
+    Gradle 的 checkReleaseAarMetadata 会直接 fail。targetSdk / minSdk 不动，
+    只把编译期使用的 API 级别抬高，不影响运行时行为。
+    """
+    kts = android_dir / "app" / "build.gradle.kts"
+    groovy = android_dir / "app" / "build.gradle"
+    path = kts if kts.exists() else groovy
+    if not path.exists():
+        print("  ! 没找到 app Gradle 文件，跳过 compileSdk")
+        return False
+
+    text = path.read_text(encoding="utf-8")
+    if re.search(r"compileSdk\s*=?\s*37\b", text):
+        print("  compileSdk 已是 37，无需改动")
+        return True
+
+    patterns = [
+        r"compileSdk\s*=\s*flutter\.compileSdkVersion",   # Kotlin DSL 新模板
+        r"compileSdkVersion\s+flutter\.compileSdkVersion",  # Groovy 模板
+        r"compileSdk\s+flutter\.compileSdkVersion",
+        r"compileSdk\s*=\s*36\b",
+        r"compileSdkVersion\s+36\b",
+    ]
+    replaced = False
+    for pattern in patterns:
+        new_text, n = re.subn(pattern, "compileSdk = 37" if path.suffix == ".kts" else "compileSdk 37", text)
+        if n:
+            text = new_text
+            replaced = True
+            break
+    if not replaced:
+        print("  ! 没找到 compileSdk 声明，跳过")
+        return False
+
+    path.write_text(text, encoding="utf-8")
+
+    # AGP 会警告"compileSdk 37 高于推荐值"，但这是 permission_handler 的硬要求，
+    # 显式关掉这条警告，避免 CI 日志里混淆真正的问题。
+    gradle_props = android_dir / "gradle.properties"
+    props = gradle_props.read_text(encoding="utf-8") if gradle_props.exists() else ""
+    if "android.suppressUnsupportedCompileSdk" not in props:
+        if props and not props.endswith("\n"):
+            props += "\n"
+        props += "android.suppressUnsupportedCompileSdk=37\n"
+        gradle_props.write_text(props, encoding="utf-8")
+
+    print("  compileSdk 已提升到 37（permission_handler_android 要求）")
+    return True
+
+
 def main() -> int:
     android_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "app/android")
     print(f"准备 Android 壳：{android_dir}")
     patch_manifest(android_dir / "app" / "src" / "main" / "AndroidManifest.xml")
     patch_gradle(android_dir)
+    patch_compile_sdk(android_dir)
     patch_signing(android_dir)
     print("完成")
     return 0
