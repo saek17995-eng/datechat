@@ -286,12 +286,13 @@ func (s *Service) Accept(ctx context.Context, uid int64, callNo string) (*JoinRe
 		return nil, errs.ErrServiceBusy.WithMsg("音视频服务暂不可用，请稍后再试")
 	}
 	s.pushCall(st.CallerID, pushTypeCallUpdate, map[string]any{
-		"call_no":    callNo,
-		"status":     StatusTalking,
-		"statusText": "talking",
-		"uid":        uid,
-		"room_id":    st.RoomID,
-		"at":         now.UnixMilli(),
+		"call_no":     callNo,
+		"status":      StatusTalking,
+		"statusText":  "talking",
+		"status_text": "talking",
+		"uid":         uid,
+		"room_id":     st.RoomID,
+		"at":          now.UnixMilli(),
 	})
 	return &JoinResult{Session: st, Ticket: ticket, PricePerMin: price.PerMin, Balance: balance}, nil
 }
@@ -309,7 +310,7 @@ func (s *Service) Reject(ctx context.Context, uid int64, callNo string) (*Sessio
 		return nil, err
 	}
 	s.pushCall(st.CallerID, pushTypeCallUpdate, map[string]any{
-		"call_no": callNo, "status": StatusRejected, "statusText": "rejected", "uid": uid,
+		"call_no": callNo, "status": StatusRejected, "statusText": "rejected", "status_text": "rejected", "uid": uid,
 		"at": s.now().UnixMilli(),
 	})
 	return s.repo.FindByID(ctx, st.ID)
@@ -328,7 +329,7 @@ func (s *Service) Cancel(ctx context.Context, uid int64, callNo string) (*Sessio
 		return nil, err
 	}
 	s.pushCall(st.CalleeID, pushTypeCallUpdate, map[string]any{
-		"call_no": callNo, "status": StatusCanceled, "statusText": "canceled", "uid": uid,
+		"call_no": callNo, "status": StatusCanceled, "statusText": "canceled", "status_text": "canceled", "uid": uid,
 		"at": s.now().UnixMilli(),
 	})
 	return s.repo.FindByID(ctx, st.ID)
@@ -357,7 +358,7 @@ func (s *Service) Hangup(ctx context.Context, uid int64, callNo string) (*Sessio
 		return nil, err
 	}
 	s.pushCall(peerOf(st, uid), pushTypeCallUpdate, map[string]any{
-		"call_no": callNo, "status": StatusEnded, "statusText": "ended", "uid": uid,
+		"call_no": callNo, "status": StatusEnded, "statusText": "ended", "status_text": "ended", "uid": uid,
 		"at": s.now().UnixMilli(),
 	})
 	return s.repo.FindByID(ctx, st.ID)
