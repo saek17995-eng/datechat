@@ -1,23 +1,65 @@
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+
 import 'call_models.dart';
+import 'webrtc_bridge.dart';
+
+/// 一次通话中，除进房凭据之外引擎需要的全部上下文。
+///
+/// 单独拎出来而不是塞进构造参数列表：控制器在不同时机才有完整信息
+/// （peerUid 建单时就有，callNo 建单后才有，caller 取决于是谁发起的）。
+class RtcContext {
+  const RtcContext({
+    required this.peerUid,
+    required this.callNo,
+    required this.video,
+    required this.caller,
+    required this.send,
+  });
+
+  final int peerUid;
+  final String callNo;
+  final bool video;
+  final bool caller;
+
+  /// 信令发送口：把 offer / answer / ICE 候选通过 WebSocket 转给对端。
+  final void Function(
+    int to,
+    String callNo,
+    String kind,
+    Map<String, dynamic> payload,
+  ) send;
+}
 
 /// 音视频引擎桥接层。
 ///
-/// 这一层存在的唯一理由：把"业务（呼叫/计费/心跳）"和"具体音视频 SDK"解耦。
+/// 这一层存在的唯一理由：把"业务（呼叫/计费/心跳）"和"具体音视频引擎"解耦。
 /// 服务端下发的进房凭据只说明"你有权进这个房间"，
-/// 真正拉流要依赖 TRTC 原生 SDK（需要在 pubspec 引入 tencent_trtc_cloud
-/// 并完成 Android/iOS 原生配置）。
+/// 真正拉流由 [WebRtcBridge] 用端对端 PeerConnection 完成——
+/// 不依赖腾讯云 TRTC，因此没有第三方密钥也能真机打通。
 ///
-/// 因此这里提供两种实现：
-///   - [MockRtcBridge]：服务端下发 mock 凭据时使用。不产生真实音视频，
-///     但呼叫/接通/心跳/挂断/计费全链路可跑通，用于联调与验收；
-///   - [PendingRtcBridge]：真实凭据但未集成原生 SDK 时使用。
-///     明确抛出带指引的错误，而不是"静默黑屏"让人以为 App 崩了。
+/// 若将来换成 TRTC 原生 SDK，只需再实现一个 RtcBridge 并改 [RtcBridge.create]，
+/// 计费与状态机一行都不用动。
 abstract class RtcBridge {
+  /// 引擎是否真的能出音视频。false 时界面提示"当前无音视频"。
   bool get available;
 
+  /// 给用户的引擎说明（界面顶部小胶囊）。
   String get hint;
 
+  /// 本地预览渲染器。语音通话时也可以为 null（未开启视频）。
+  RTCVideoRenderer? get localRenderer => null;
+
+  /// 远端画面渲染器。
+  RTCVideoRenderer? get remoteRenderer => null;
+
+  /// 采集本地媒体并建立连接。幂等：重复调用不会建两条连接。
   Future<void> enterRoom(CallTicket ticket);
+
+  /// 主叫发起协商（对方接听后调用）。
+  Future<void> negotiate();
+
+  /// 处理对端信令。pc 未就绪时会先缓存，就绪后自动补处理。
+  Future<void> handleSignal(String kind, Map<String, dynamic> payload);
 
   Future<void> leaveRoom();
 
@@ -25,60 +67,8 @@ abstract class RtcBridge {
 
   Future<void> setSpeakerOn(bool on);
 
-  factory RtcBridge.fromTicket(CallTicket ticket) {
-    if (ticket.mock) return const MockRtcBridge();
-    return const PendingRtcBridge();
-  }
-}
+  /// 彻底释放（含渲染器）。
+  Future<void> dispose();
 
-class MockRtcBridge implements RtcBridge {
-  const MockRtcBridge();
-
-  @override
-  bool get available => false;
-
-  @override
-  String get hint => '本地模拟房间：无真实音视频，但计费链路完整';
-
-  @override
-  Future<void> enterRoom(CallTicket ticket) async {}
-
-  @override
-  Future<void> leaveRoom() async {}
-
-  @override
-  Future<void> setMicMuted(bool muted) async {}
-
-  @override
-  Future<void> setSpeakerOn(bool on) async {}
-}
-
-class PendingRtcBridge implements RtcBridge {
-  const PendingRtcBridge();
-
-  @override
-  bool get available => false;
-
-  @override
-  String get hint => '已拿到真实进房凭据，但客户端尚未集成 TRTC 原生 SDK';
-
-  @override
-  Future<void> enterRoom(CallTicket ticket) async {
-    throw UnsupportedError(
-      '未集成 TRTC SDK：请在 pubspec 引入 tencent_trtc_cloud 后替换 RtcBridge 实现',
-    );
-  }
-
-  @override
-  Future<void> leaveRoom() async {}
-
-  @override
-  Future<void> setMicMuted(bool muted) async {
-    throw UnsupportedError('未集成 TRTC SDK');
-  }
-
-  @override
-  Future<void> setSpeakerOn(bool on) async {
-    throw UnsupportedError('未集成 TRTC SDK');
-  }
+  factory RtcBridge.create(RtcContext ctx) => WebRtcBridge(ctx: ctx);
 }

@@ -34,6 +34,15 @@ PERMISSIONS = [
     "android.permission.RECORD_AUDIO",
     "android.permission.MODIFY_AUDIO_SETTINGS",
     "android.permission.VIBRATE",
+    # Android 13（API 33）起通知是运行时权限：manifest 里不声明，
+    # 系统压根不会弹授权框，新消息推送就永远静音。
+    "android.permission.POST_NOTIFICATIONS",
+    # 锁屏弹来电界面（fullScreenIntent）在 Android 14 上需要它，
+    # 否则来电只会有一条普通通知，用户很容易漏接。
+    "android.permission.USE_FULL_SCREEN_INTENT",
+    # 通话中要防止系统休眠掐断音频：flutter_webrtc 的前台服务也依赖它。
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.WAKE_LOCK",
 ]
 
 
@@ -203,10 +212,40 @@ def patch_signing(android_dir: Path) -> bool:
     return False
 
 
+def patch_min_sdk(android_dir: Path) -> bool:
+    """把 minSdk 抬到 24。
+
+    flutter_webrtc 与全屏来电通知都需要 API 24+ 的部分能力，
+    而模板在个别版本里仍是 21；留着 21 会在安装后运行时崩，
+    且报错信息完全看不出是 minSdk 的锅。
+    """
+    for name in ("build.gradle.kts", "build.gradle"):
+        path = android_dir / "app" / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+
+        def bump(match: "re.Match[str]") -> str:
+            value = int(match.group(2))
+            return match.group(1) + str(max(24, value))
+
+        new = re.sub(r"(minSdk\s*=\s*)(\d+)", bump, text)
+        new = re.sub(r"(minSdkVersion\s+)(\d+)", bump, new)
+        if new != text:
+            path.write_text(new, encoding="utf-8")
+            print("  已将 minSdk 抬到 24（WebRTC 与全屏来电需要）")
+        else:
+            print("  minSdk 已满足要求")
+        return True
+    print("  ! 没找到构建脚本，跳过 minSdk 补丁")
+    return False
+
+
 def main() -> int:
     android_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "app/android")
     print(f"准备 Android 壳：{android_dir}")
     patch_manifest(android_dir / "app" / "src" / "main" / "AndroidManifest.xml")
+    patch_min_sdk(android_dir)
     patch_signing(android_dir)
     print("完成")
     return 0

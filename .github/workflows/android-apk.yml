@@ -17,6 +17,15 @@ on:
         description: '手机上显示的应用名'
         required: false
         default: 'datechat'
+      turn_url:
+        description: 'TURN 中转地址（跨公网通话必填，同一 WiFi 下可留空）'
+        required: false
+      turn_username:
+        description: 'TURN 用户名'
+        required: false
+      turn_credential:
+        description: 'TURN 密码'
+        required: false
   push:
     paths:
       - 'app/**'
@@ -90,13 +99,27 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
+      # 分析放在打包之前：编译能过不代表没有未定义符号，
+      # 这类问题在真机上表现为一点某个功能就崩，排查成本高得多。
+      - name: 静态分析
+        run: flutter analyze --no-fatal-infos
+
       - name: 打 release APK
         # 按 ABI 拆分：通用包 26MB（三种 CPU 架构各塞一份），拆开后 arm64 只有约 7MB，
         # 下载和分发都快得多。绝大多数在用手机都是 arm64。
         run: |
           URL="${{ inputs.api_base_url || 'https://api.datechat.example' }}"
           echo "后端地址：$URL"
-          flutter build apk --release --split-per-abi --dart-define=API_BASE_URL="$URL"
+          DEFINES="--dart-define=API_BASE_URL=$URL"
+          if [ -n "${{ inputs.turn_url }}" ]; then
+            echo "TURN：已配置"
+            DEFINES="$DEFINES --dart-define=TURN_URL=${{ inputs.turn_url }}"
+            DEFINES="$DEFINES --dart-define=TURN_USERNAME=${{ inputs.turn_username }}"
+            DEFINES="$DEFINES --dart-define=TURN_CREDENTIAL=${{ inputs.turn_credential }}"
+          else
+            echo "TURN：未配置（同一 WiFi 下可直连，跨公网需要中转）"
+          fi
+          flutter build apk --release --split-per-abi $DEFINES
           ls -lh build/app/outputs/flutter-apk/
 
       - name: 改名带上版本

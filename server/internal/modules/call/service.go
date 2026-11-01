@@ -23,6 +23,8 @@ type Deps struct {
 	Room   RoomProvider
 	Wallet Charger
 	Now    func() time.Time
+	// Notify 实时推送（P9 WebSocket）。为空时退化为"客户端主动拉"。
+	Notify func(uid int64, typ string, data any)
 }
 
 // Service 通话服务。
@@ -33,6 +35,7 @@ type Service struct {
 	room   RoomProvider
 	wallet Charger
 	now    func() time.Time
+	notify func(uid int64, typ string, data any)
 }
 
 // NewService 构造服务。
@@ -43,7 +46,29 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{cfg: d.Config, log: d.Log, repo: d.Repo, room: d.Room, wallet: d.Wallet, now: d.Now}
+	return &Service{cfg: d.Config, log: d.Log, repo: d.Repo, room: d.Room, wallet: d.Wallet, now: d.Now, notify: d.Notify}
+}
+
+// 实时推送帧类型。与 realtime 包用同一组字符串常量，这里不 import 它是为了保持单向依赖。
+const (
+	pushTypeCallInvite = "call_invite"
+	pushTypeCallUpdate = "call_update"
+)
+
+// pushCall 推送通话事件；notify 为空时静默跳过（客户端退化为轮询）。
+func (s *Service) pushCall(uid int64, typ string, data map[string]any) {
+	if s.notify == nil || uid <= 0 {
+		return
+	}
+	s.notify(uid, typ, data)
+}
+
+// peerOf 取通话对端。
+func peerOf(st *Session, uid int64) int64 {
+	if st.CallerID == uid {
+		return st.CalleeID
+	}
+	return st.CallerID
 }
 
 func (s *Service) policy() config.CallPolicy {
@@ -176,6 +201,15 @@ func (s *Service) Create(ctx context.Context, callerID, calleeID int64, mediaTyp
 		s.log.Error("签发进房凭据失败", zap.String("call_no", callNo), zap.Error(err))
 		return nil, errs.ErrServiceBusy.WithMsg("音视频服务暂不可用，请稍后再试")
 	}
+	s.pushCall(calleeID, pushTypeCallInvite, map[string]any{
+		"call_no":       callNo,
+		"caller_uid":    callerID,
+		"callee_uid":    calleeID,
+		"media_type":    mediaType,
+		"price_per_min": price.PerMin,
+		"room_id":       roomID,
+		"created_at":    now.UnixMilli(),
+	})
 	return &CreateResult{
 		Session:              st,
 		Ticket:               ticket,
@@ -251,6 +285,14 @@ func (s *Service) Accept(ctx context.Context, uid int64, callNo string) (*JoinRe
 		s.log.Error("被叫签票失败", zap.String("call_no", callNo), zap.Error(err))
 		return nil, errs.ErrServiceBusy.WithMsg("音视频服务暂不可用，请稍后再试")
 	}
+	s.pushCall(st.CallerID, pushTypeCallUpdate, map[string]any{
+		"call_no":    callNo,
+		"status":     StatusTalking,
+		"statusText": "talking",
+		"uid":        uid,
+		"room_id":    st.RoomID,
+		"at":         now.UnixMilli(),
+	})
 	return &JoinResult{Session: st, Ticket: ticket, PricePerMin: price.PerMin, Balance: balance}, nil
 }
 
@@ -266,6 +308,10 @@ func (s *Service) Reject(ctx context.Context, uid int64, callNo string) (*Sessio
 	if err := s.finish(ctx, st, uid, s.now(), StatusRejected, EndReject, "reject"); err != nil {
 		return nil, err
 	}
+	s.pushCall(st.CallerID, pushTypeCallUpdate, map[string]any{
+		"call_no": callNo, "status": StatusRejected, "statusText": "rejected", "uid": uid,
+		"at": s.now().UnixMilli(),
+	})
 	return s.repo.FindByID(ctx, st.ID)
 }
 
@@ -281,6 +327,10 @@ func (s *Service) Cancel(ctx context.Context, uid int64, callNo string) (*Sessio
 	if err := s.finish(ctx, st, uid, s.now(), StatusCanceled, EndNormal, "cancel"); err != nil {
 		return nil, err
 	}
+	s.pushCall(st.CalleeID, pushTypeCallUpdate, map[string]any{
+		"call_no": callNo, "status": StatusCanceled, "statusText": "canceled", "uid": uid,
+		"at": s.now().UnixMilli(),
+	})
 	return s.repo.FindByID(ctx, st.ID)
 }
 
@@ -306,6 +356,10 @@ func (s *Service) Hangup(ctx context.Context, uid int64, callNo string) (*Sessio
 	if err := s.finish(ctx, st, uid, s.now(), StatusEnded, EndNormal, "hangup"); err != nil {
 		return nil, err
 	}
+	s.pushCall(peerOf(st, uid), pushTypeCallUpdate, map[string]any{
+		"call_no": callNo, "status": StatusEnded, "statusText": "ended", "uid": uid,
+		"at": s.now().UnixMilli(),
+	})
 	return s.repo.FindByID(ctx, st.ID)
 }
 

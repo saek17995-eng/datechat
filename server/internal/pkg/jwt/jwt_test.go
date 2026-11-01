@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -60,8 +61,20 @@ func TestParseTamperedToken(t *testing.T) {
 		t.Fatalf("签发失败: %v", err)
 	}
 
-	// 篡改最后一个字符，签名校验必须失败。
-	tampered := token[:len(token)-1] + "x"
+	// 篡改签名段中间的字符，签名校验必须失败。
+	//
+	// 不能改最后一个字符：签名段是 43 个 base64url 字符（32 字节 = 256 bit），
+	// 末字符的末 2 个比特解码时会被丢弃，因此有 1/4 概率"改了但字节不变"，
+	// 签名照样校验通过——这个用例会随时间随机翻车。
+	parts := strings.Split(token, ".")
+	sig := parts[len(parts)-1]
+	mid := len(sig) / 2
+	rep := byte('A')
+	if sig[mid] == 'A' {
+		rep = 'B'
+	}
+	parts[len(parts)-1] = sig[:mid] + string(rep) + sig[mid+1:]
+	tampered := strings.Join(parts, ".")
 	if _, err := manager.Parse(tampered); !errs.Is(err, errs.CodeTokenInvalid) {
 		t.Fatalf("期望非法令牌错误码 %d，实际 %v", errs.CodeTokenInvalid, err)
 	}

@@ -30,6 +30,8 @@ type Service struct {
 	filter *textfilter.Filter
 	mod    TextModerator
 	now    func() time.Time
+	// notify 实时推送。为空表示没启用 WebSocket 通道，业务照常跑（客户端退化为拉取）。
+	notify func(uid int64, typ string, data any)
 }
 
 // Deps 构造依赖。
@@ -41,7 +43,19 @@ type Deps struct {
 	Filter *textfilter.Filter
 	// Mod 统一内容安全服务（P4）。为空时退化成本地 DFA 过滤。
 	Mod TextModerator
+	// Notify 实时推送（P9 WebSocket）。签名为 func(uid int64, typ string, data any)，
+	// 用函数而不是接口：聊天模块不该为了推一帧消息去依赖整个 realtime 包。
+	Notify func(uid int64, typ string, data any)
 }
+
+// 实时推送的帧类型。
+// 这里用字符串常量而不是 import realtime 包：聊天模块在没启用 WebSocket 时
+// 也不该依赖它，保持"业务 → 通道"的单向依赖。
+const (
+	pushTypeNewMessage = "new_message"
+	pushTypeRecall     = "message_recall"
+	pushTypeRead       = "message_read"
+)
 
 // TextModerator 内容安全能力的最小接口。
 // chat 依赖它而不是具体实现，既避免与 moderation 包循环依赖，也便于单测注入。
@@ -58,7 +72,7 @@ func NewService(d Deps) *Service {
 	if filter == nil {
 		filter = textfilter.New()
 	}
-	return &Service{cfg: d.Config, log: log, repo: d.Repo, im: d.IM, filter: filter, mod: d.Mod, now: time.Now}
+	return &Service{cfg: d.Config, log: log, repo: d.Repo, im: d.IM, filter: filter, mod: d.Mod, now: time.Now, notify: d.Notify}
 }
 
 // checkText 统一的文本审核入口：优先用 moderation 服务（含云审核与统一留痕），
@@ -200,6 +214,23 @@ func (s *Service) SendText(ctx context.Context, uid int64, in SendMessageInput) 
 	}
 	view := toMessageView(*stored, uid)
 	_ = remoteSynced // 消息模型不暴露通道；会话接口对客户端保持一致。
+
+	// 实时推送：让接收方不必轮询就能收到。推送失败不影响发送结果——
+	// 消息已经落库，对方下次打开会话列表一定能拉到。
+	if s.notify != nil {
+		s.notify(in.PeerUID, pushTypeNewMessage, map[string]any{
+			"id":              view.ID,
+			"msg_id":          view.MsgID,
+			"client_msg_id":   clientMsgID,
+			"from_uid":        uid,
+			"to_uid":          in.PeerUID,
+			"nickname":        from.Nickname,
+			"avatar":          from.Avatar,
+			"text":            view.Text,
+			"sent_at":         view.SentAt,
+			"conversation_id": view.ConvID,
+		})
+	}
 	return &view, nil
 }
 
@@ -294,6 +325,12 @@ func (s *Service) MarkRead(ctx context.Context, uid, peerUID int64) (*ReadResult
 	if err != nil {
 		return nil, errs.ErrInternal.WithErr(err)
 	}
+	if s.notify != nil {
+		s.notify(peerUID, pushTypeRead, map[string]any{
+			"from_uid":      uid,
+			"last_read_seq": seq,
+		})
+	}
 	return &ReadResult{PeerUID: peerUID, LastReadSeq: seq, UnreadCount: 0, RemoteSynced: remote}, nil
 }
 
@@ -344,6 +381,14 @@ func (s *Service) Recall(ctx context.Context, uid int64, msgID string) (*RecallR
 	at := s.now()
 	if err := s.repo.RecallMessage(ctx, msgID, uid, at); err != nil {
 		return nil, errs.ErrInternal.WithErr(err)
+	}
+	if s.notify != nil {
+		s.notify(m.ToUID, pushTypeRecall, map[string]any{
+			"msg_id":      msgID,
+			"from_uid":    m.FromUID,
+			"to_uid":      m.ToUID,
+			"recalled_at": at.UnixMilli(),
+		})
 	}
 	return &RecallResult{MsgID: msgID, Status: MessageStatusRecalled, RecalledAt: at.UnixMilli(), RemoteSynced: remote}, nil
 }

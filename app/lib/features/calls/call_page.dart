@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../profile/profile_image.dart';
@@ -93,6 +94,10 @@ class _CallPageState extends ConsumerState<CallPage> {
     final talking = state.phase == CallPhase.talking;
     final ringing = state.phase == CallPhase.ringing;
     final ended = state.phase == CallPhase.ended;
+    final bridge = state.bridge;
+    // 视频通话且引擎已就绪时才铺画面；语音通话保持原来的头像布局，
+    // 否则语音通话页会出现一块黑屏，看着像卡死了。
+    final showVideo = widget.isVideo && bridge != null;
 
     return PopScope(
       // 通话中禁止用系统返回键离开：离开了心跳还在跑，用户会莫名被扣费。
@@ -108,25 +113,39 @@ class _CallPageState extends ConsumerState<CallPage> {
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 46,
-                  backgroundImage: widget.peerAvatar.isNotEmpty
-                      ? NetworkImage(ProfileImage.absUrl(widget.peerAvatar))
-                      : null,
-                  child: widget.peerAvatar.isEmpty
-                      ? const Icon(Icons.person, size: 40)
-                      : null,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  widget.peerName.isEmpty ? '对方' : widget.peerName,
-                  style: theme.textTheme.titleLarge,
-                ),
+                if (showVideo)
+                  Expanded(child: _VideoStage(bridge: bridge!))
+                else ...[
+                  CircleAvatar(
+                    radius: 46,
+                    backgroundImage: widget.peerAvatar.isNotEmpty
+                        ? NetworkImage(ProfileImage.absUrl(widget.peerAvatar))
+                        : null,
+                    child: widget.peerAvatar.isEmpty
+                        ? const Icon(Icons.person, size: 40)
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    widget.peerName.isEmpty ? '对方' : widget.peerName,
+                    style: theme.textTheme.titleLarge,
+                  ),
+                ],
                 const SizedBox(height: 8),
                 _StatusLine(state: state),
+                if (state.engineState.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      state.engineState,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 12),
-                _EngineHint(ticket: state.ticket),
-                const Spacer(),
+                _EngineHint(hint: state.bridge?.hint ?? ''),
+                if (!showVideo) const Spacer(),
                 if (!ended)
                   Text(
                     state.durationText,
@@ -218,14 +237,14 @@ class _StatusLine extends StatelessWidget {
 }
 
 class _EngineHint extends StatelessWidget {
-  const _EngineHint({required this.ticket});
+  const _EngineHint({required this.hint});
 
-  final CallTicket? ticket;
+  /// 引擎说明文案。桥接层自己最清楚用的是哪种引擎，页面只负责展示。
+  final String hint;
 
   @override
   Widget build(BuildContext context) {
-    if (ticket == null) return const SizedBox.shrink();
-    final bridge = RtcBridge.fromTicket(ticket!);
+    if (hint.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -234,7 +253,7 @@ class _EngineHint extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
-        bridge.hint,
+        hint,
         style: theme.textTheme.bodySmall,
       ),
     );
@@ -419,6 +438,43 @@ class _RoundButton extends StatelessWidget {
         const SizedBox(height: 6),
         Text(label, style: theme.textTheme.bodySmall),
       ],
+    );
+  }
+}
+
+/// 视频画面：远端铺满，本地小窗叠在右上角。
+///
+/// RTCVideoView 自带纹理刷新，srcObject 变化不需要 setState——
+/// 这也是为什么渲染器放在引擎里而不是页面状态里。
+class _VideoStage extends StatelessWidget {
+  const _VideoStage({required this.bridge});
+
+  final RtcBridge bridge;
+
+  @override
+  Widget build(BuildContext context) {
+    final remote = bridge.remoteRenderer;
+    final local = bridge.localRenderer;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        children: [
+          Container(color: Colors.black87),
+          if (remote != null)
+            Positioned.fill(child: RTCVideoView(remote, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
+          if (local != null)
+            Positioned(
+              top: 12,
+              right: 12,
+              width: 96,
+              height: 128,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: RTCVideoView(local, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

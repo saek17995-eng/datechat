@@ -16,3 +16,8 @@ export GOCACHE="/Users/zhangchenyu/WorkBuddy/2026-10-31-11-46-09/.local/gocache"
 export GOMODCACHE="$GOPATH/pkg/mod"
 export GOFLAGS="-mod=mod"
 export CGO_ENABLED=1
+# 依赖代理：本机直连 proxy.golang.org 会间歇性 502，国内镜像可用。
+# GOPROXY 支持逗号分隔的回退链，逐个尝试直到成功。
+export GOPROXY="${GOPROXY:-https://mirrors.tencent.com/go/,https://goproxy.cn,direct}"
+export GOSUMDB=off
+export GOFLAGS="$GOFLAGS"

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/realtime/realtime_providers.dart';
 import '../profile/profile_image.dart';
 import '../chat/chat_controller.dart';
 import '../chat/data/chat_models.dart';
@@ -18,6 +19,15 @@ class MessagesPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(conversationsProvider);
+
+    // 打开消息页就等于看过了：清掉本地角标。
+    // 真正的未读数由会话接口下发（页面标题里的数字），这里只清"推送时累加的那个"。
+    final localUnread = ref.watch(unreadTotalProvider);
+    if (localUnread > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(unreadTotalProvider.notifier).state = 0;
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(

@@ -17,6 +17,12 @@ dependencies:
   dio: ^5.7.0
   # 本地存储（令牌、设备 ID）
   shared_preferences: ^2.3.3
+  # P9：本地通知（新消息 / 来电）。服务端走自建 WebSocket 推送，
+  # 由客户端落地成系统通知，不依赖任何厂商推送通道。
+  flutter_local_notifications: ^22.3.3
+  # P9：自建音视频。不接 TRTC 原生 SDK，改用 WebRTC 点对点，
+  # 这样没有腾讯云密钥也能真机打通。
+  flutter_webrtc: ^1.6.3
   intl: ^0.19.0
   cupertino_icons: ^1.0.8
 

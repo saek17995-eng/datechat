@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/notification/notification_service.dart';
+import '../../core/realtime/realtime_providers.dart';
 import '../profile/profile_image.dart';
 import 'chat_controller.dart';
 import 'data/chat_models.dart';
@@ -39,10 +41,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    // 标记"我正在跟这个人聊天"：收到他的消息时不再弹系统通知，
+    // 屏幕上的气泡已经是最好的提示。
+    ref.read(activeChatPeerProvider.notifier).state = widget.peerUid;
+    // 进会话就等于读了，清掉这个人的通知。
+    unawaited(
+      ref.read(notificationServiceProvider).cancel(widget.peerUid),
+    );
   }
 
   @override
   void dispose() {
+    final active = ref.read(activeChatPeerProvider);
+    if (active == widget.peerUid) {
+      ref.read(activeChatPeerProvider.notifier).state = null;
+    }
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();

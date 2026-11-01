@@ -21,6 +21,7 @@ import (
 	"github.com/datechat/server/internal/modules/moderation"
 	"github.com/datechat/server/internal/modules/nearby"
 	"github.com/datechat/server/internal/modules/ops"
+	"github.com/datechat/server/internal/modules/realtime"
 	"github.com/datechat/server/internal/modules/wallet"
 	"github.com/datechat/server/internal/pkg/crypto"
 	"github.com/datechat/server/internal/pkg/jwt"
@@ -156,6 +157,11 @@ func main() {
 		log.Warn("未配置 TRTC 密钥，通话将下发本地模拟房间（无真实音视频流）",
 			zap.Bool("mock", trtcClient.MockEnabled()))
 	}
+	// P9：WebSocket 实时通道。消息推送与通话信令都走它；
+	// 进程退出前统一关闭，避免客户端要等 90s 读超时才发现断线。
+	hub := realtime.NewHub(log)
+	defer hub.Close()
+
 	// P7：附近的人与在线。位置检索走 Redis GEO，在线状态复用心跳写入的 presence 键。
 	callSvc := call.NewService(call.Deps{
 		Config: cfg,
@@ -163,6 +169,7 @@ func main() {
 		Repo:   call.NewRepository(db),
 		Room:   trtcClient,
 		Wallet: walletSvc,
+		Notify: hub.Push,
 	})
 	nearbySvc := nearby.NewService(nearby.Deps{
 		Config: cfg,
@@ -221,6 +228,7 @@ func main() {
 			Call:      callSvc,
 			Nearby:    nearbySvc,
 			Ops:       opsSvc,
+			Realtime:  hub,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       cfg.App.ReadTimeout.D(),

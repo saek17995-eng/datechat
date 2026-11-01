@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_env.dart';
 import 'core/di/providers.dart';
+import 'core/notification/notification_service.dart';
 import 'core/router/app_router.dart';
 import 'core/storage/server_config_store.dart';
 import 'core/storage/token_store.dart';
@@ -22,6 +23,16 @@ Future<void> bootstrap() async {
   final tokenStore = await TokenStore.create();
   final serverConfig = await ServerConfigStore.create();
 
+  // 通知渠道与 Android 13+ 的运行时权限都要在 runApp 之前准备好，
+  // 否则第一条消息推过来时还没权限，用户什么都看不到。
+  // 失败不能阻断启动：通知只是增强，没有它 App 照样能用。
+  final notifications = NotificationService();
+  try {
+    await notifications.init();
+  } catch (_) {
+    // 忽略：某些机型/系统版本不支持，降级为"只有 App 内提醒"
+  }
+
   // 用户在 App 里改过的后端地址优先于打包值
   AppEnv.init(overrideBaseUrl: serverConfig.baseUrlOverride);
 
@@ -30,6 +41,7 @@ Future<void> bootstrap() async {
       overrides: [
         tokenStoreProvider.overrideWithValue(tokenStore),
         serverConfigStoreProvider.overrideWithValue(serverConfig),
+        notificationServiceProvider.overrideWithValue(notifications),
       ],
       child: const DateChatApp(),
     ),

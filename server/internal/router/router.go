@@ -22,6 +22,7 @@ import (
 	"github.com/datechat/server/internal/modules/ops"
 	"github.com/datechat/server/internal/modules/profile"
 	"github.com/datechat/server/internal/modules/realname"
+	"github.com/datechat/server/internal/modules/realtime"
 	"github.com/datechat/server/internal/modules/system"
 	"github.com/datechat/server/internal/modules/wallet"
 	"github.com/datechat/server/internal/pkg/crypto"
@@ -51,6 +52,7 @@ type Deps struct {
 	Call     *call.Service       // P6 通话与计费服务；为空时通话路由不注册
 	Nearby   *nearby.Service     // P7 附近的人与在线；为空时不注册相关路由
 	Ops      *ops.Service        // P8 运营后台；为空时不注册后台查询路由
+	Realtime *realtime.Hub       // P9 WebSocket 实时通道；为空时不注册 /v1/ws，业务退化为拉取
 	// PayVerify P5 微信回调验签。为空时回调路由直接拒绝，绝不放无签名请求发货。
 	PayVerify func(body []byte, header http.Header) (*wxpay.Notify, error)
 	// AdminMW 后台鉴权中间件。单独注入是为了让"后台未启用"时能明确跳过而不是静默放行。
@@ -98,6 +100,13 @@ func New(d Deps) *gin.Engine {
 
 	authMW := middleware.Auth(d.Tokens)
 
+	// 实时推送闭包：Hub 为空时是 nil，业务模块的 notify 分支自然跳过。
+	// 用闭包而不是把 Hub 塞进每个模块，是为了让"能不能推"这件事只有一个开关。
+	var notify func(int64, string, any)
+	if d.Realtime != nil {
+		notify = d.Realtime.Push
+	}
+
 	// P3 IM 回调不能挂 JWT，也不能经过通用限流：腾讯云事件前回调只有 2 秒超时。
 	chatSvc := chat.NewService(chat.Deps{
 		Config: cfg,
@@ -106,6 +115,7 @@ func New(d Deps) *gin.Engine {
 		IM:     d.IM,
 		Filter: d.Filter,
 		Mod:    d.ModSvc,
+		Notify: notify,
 	})
 	chatHandler := chat.NewHandler(chatSvc)
 	chatHandler.RegisterCallback(engine)
@@ -121,6 +131,12 @@ func New(d Deps) *gin.Engine {
 	}
 	{
 		v1.GET("/ping", health.Ping(cfg))
+
+		// P9：WebSocket 实时通道（新消息推送 + 通话信令）。
+		// 不放进限流组之外的匿名区：握手必须带 access token，由 handler 自己校验。
+		if d.Realtime != nil {
+			realtime.NewHandler(d.Realtime, d.Tokens).Register(v1)
+		}
 
 		// P8：协议与最低年龄。不挂鉴权——未登录也要能弹协议。
 		system.NewHandler(cfg, d.Log, d.DB).Register(v1)
