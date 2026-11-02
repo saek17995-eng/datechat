@@ -15,6 +15,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  bool _initializing = false;
 
   /// 通知被点击时的回调，由外层注入（跳转会话 / 回拨）。
   void Function(String? payload)? onTap;
@@ -36,27 +37,44 @@ class NotificationService {
   );
 
   Future<void> init() async {
-    if (_initialized) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-    await _plugin.initialize(
-      // v22 起 initialize / show / cancel 全部改成命名参数（旧的位置参数写法会编译失败）。
-      settings: const InitializationSettings(android: android, iOS: ios),
-      onDidReceiveNotificationResponse: (response) => onTap?.call(response.payload),
-    );
+    if (_initialized || _initializing) return;
+    _initializing = true;
+    try {
+      const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const ios = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+      await _plugin.initialize(
+        // v22 起 initialize / show / cancel 全部改成命名参数（旧的位置参数写法会编译失败）。
+        settings: const InitializationSettings(android: android, iOS: ios),
+        onDidReceiveNotificationResponse: (response) => onTap?.call(response.payload),
+      );
 
-    final androidImpl = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    // Android 13+ 的 POST_NOTIFICATIONS 是运行时权限，不申请则完全静音。
-    await androidImpl?.requestNotificationsPermission();
-    await androidImpl?.createNotificationChannel(messageChannel);
-    await androidImpl?.createNotificationChannel(callChannel);
+      final androidImpl = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      await androidImpl?.createNotificationChannel(messageChannel);
+      await androidImpl?.createNotificationChannel(callChannel);
+      // Android 13+ 的 POST_NOTIFICATIONS 是运行时权限，不申请则完全静音。
+      if (await androidImpl?.areNotificationsEnabled() != true) {
+        await androidImpl?.requestNotificationsPermission();
+      }
+      _initialized = true;
+    } finally {
+      // EMUI/HarmonyOS 兼容层偶发初始化失败时，下一条消息还可以重试。
+      _initializing = false;
+    }
+  }
 
-    _initialized = true;
+  Future<bool> _ensureReady() async {
+    if (_initialized) return true;
+    try {
+      await init();
+    } catch (_) {
+      return false;
+    }
+    return _initialized;
   }
 
   /// 新消息。同一个会话复用同一条通知 id，避免刷屏。
@@ -66,7 +84,7 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-    if (!_initialized) return;
+    if (!await _ensureReady()) return;
     await _plugin.show(
       id: peerUid,
       title: title,
@@ -94,7 +112,7 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-    if (!_initialized) return;
+    if (!await _ensureReady()) return;
     await _plugin.show(
       id: 1000000 + peerUid,
       title: title,
