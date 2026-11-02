@@ -22,6 +22,7 @@ class CallPage extends ConsumerStatefulWidget {
     this.peerName = '',
     this.peerAvatar = '',
     this.isVideo = false,
+    this.incoming = false,
     this.autoAccept = false,
   });
 
@@ -33,6 +34,7 @@ class CallPage extends ConsumerStatefulWidget {
   final String peerName;
   final String peerAvatar;
   final bool isVideo;
+  final bool incoming;
 
   /// true 表示被叫从"来电"入口进入，页面初始化时自动接听。
   final bool autoAccept;
@@ -52,7 +54,15 @@ class _CallPageState extends ConsumerState<CallPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_started) return;
       _started = true;
-      if (widget.autoAccept) {
+      if (widget.incoming && !widget.autoAccept) {
+        ref.read(callControllerProvider.notifier).prepareIncoming(
+              callNo: widget.callNo,
+              callerId: widget.peerUid,
+              video: widget.isVideo,
+              peerName: widget.peerName,
+              peerAvatar: widget.peerAvatar,
+            );
+      } else if (widget.autoAccept) {
         unawaited(_accept());
       } else {
         unawaited(_start());
@@ -218,7 +228,10 @@ class _StatusLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final text = switch (state.phase) {
+    final error = state.error?.trim() ?? '';
+    final text = error.isNotEmpty
+        ? error
+        : switch (state.phase) {
       CallPhase.idle || CallPhase.dialing => '正在呼叫…',
       CallPhase.ringing => state.isCaller ? '等待对方接听…' : '来电',
       CallPhase.talking => '通话中',
@@ -228,8 +241,11 @@ class _StatusLine extends StatelessWidget {
     };
     return Text(
       text,
+      textAlign: TextAlign.center,
       style: theme.textTheme.bodyMedium?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
+        color: error.isNotEmpty
+            ? theme.colorScheme.error
+            : theme.colorScheme.onSurfaceVariant,
       ),
     );
   }
