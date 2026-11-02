@@ -82,7 +82,32 @@ cmd_start() {
   fi
 
   echo "→ 启动 API :$PORT"
-  (cd "$ROOT/server" && nohup "$BIN" -c configs/config.dev.yaml >>"$LOG" 2>&1 & echo $! >"$PIDFILE")
+  # 不能用 nohup ... & ：那样启动的进程仍挂在当前 shell 的会话/进程组上，
+  # 这个 shell 一被终止，API 会被连带杀掉（实测多次）。MySQL/Redis 之所以能活，
+  # 是因为启动它们的任务正常退出、进程被过继给 launchd。这里直接走经典守护化：
+  # fork → setsid → fork，彻底脱离会话与进程组，谁来回收都收不到它。
+  (cd "$ROOT/server" && DC_API_LOG="$LOG" python3 - "$BIN" <<'PY' && echo "守护进程已派生"
+import os, sys
+
+bin_path = sys.argv[1]
+workdir = os.getcwd()
+env = dict(os.environ)
+log_path = env.get("DC_API_LOG", "/dev/null")
+
+if os.fork() > 0:
+    sys.exit(0)
+os.setsid()
+if os.fork() > 0:
+    sys.exit(0)
+
+os.chdir(workdir)
+os.umask(0o022)
+fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+os.dup2(fd, 1)
+os.dup2(fd, 2)
+os.execve(bin_path, [bin_path, "-c", "configs/config.dev.yaml"], env)
+PY
+  )
 
   for _ in $(seq 1 60); do
     if healthy; then
