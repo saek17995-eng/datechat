@@ -141,6 +141,7 @@ class _RealtimeEffectsState extends ConsumerState<RealtimeEffects>
         'name': name,
         'avatar': avatar,
         'video': video,
+        'incoming': true,
         'auto_accept': false,
       },
     ));
