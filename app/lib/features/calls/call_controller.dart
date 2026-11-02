@@ -154,6 +154,44 @@ class CallController extends StateNotifier<CallState> {
 
   // ------------------------------------------------------------ 主叫 / 被叫
 
+  /// 收到来电时只进入振铃态；只有用户点击“接听”才调用 accept。
+  void prepareIncoming({
+    required String callNo,
+    required int callerId,
+    required bool video,
+    int pricePerMin = 0,
+    String peerName = '',
+    String peerAvatar = '',
+  }) {
+    if (callNo.isEmpty || callerId <= 0) return;
+    if (state.callNo == callNo && state.phase == CallPhase.ringing) return;
+
+    final old = _bridge;
+    _bridge = null;
+    _ctx = null;
+    unawaited(old?.dispose().catchError((Object _) {}));
+
+    state = CallState(
+      phase: CallPhase.ringing,
+      session: CallSession(
+        id: 0,
+        callNo: callNo,
+        callerId: callerId,
+        calleeId: 0,
+        mediaType: video ? mediaVideo : mediaAudio,
+        pricePerMin: pricePerMin,
+        status: callStatusRinging,
+        roomId: '',
+      ),
+      peerName: peerName,
+      peerAvatar: peerAvatar,
+      isCaller: false,
+      isVideo: video,
+      pricePerMin: pricePerMin,
+      engineState: '等待接听…',
+    );
+  }
+
   /// 主叫：发起通话。
   Future<bool> start({
     required int calleeId,
@@ -301,7 +339,7 @@ class CallController extends StateNotifier<CallState> {
   void _onRemoteUpdate(Map<String, dynamic> data) {
     final callNo = (data['call_no'] ?? '').toString();
     if (state.callNo.isEmpty || callNo.isEmpty || callNo != state.callNo) return;
-    switch ((data['statusText'] ?? '').toString()) {
+    switch ((data['statusText'] ?? data['status_text'] ?? '').toString()) {
       case 'talking':
         if (state.phase == CallPhase.talking) return;
         state = state.copyWith(phase: CallPhase.talking);
