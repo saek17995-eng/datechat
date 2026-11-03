@@ -12,7 +12,7 @@ on:
       api_base_url:
         description: '客户端后端地址（写入 --dart-define=API_BASE_URL）'
         required: false
-        default: 'https://api.datechat.example'
+        default: 'https://hs2.rqez.cn'
       app_name:
         description: '手机上显示的应用名'
         required: false
@@ -112,7 +112,7 @@ jobs:
         # 按 ABI 拆分：通用包 26MB（三种 CPU 架构各塞一份），拆开后 arm64 只有约 7MB，
         # 下载和分发都快得多。绝大多数在用手机都是 arm64。
         run: |
-          URL="${{ inputs.api_base_url || 'https://api.datechat.example' }}"
+          URL="${{ inputs.api_base_url || 'https://hs2.rqez.cn' }}"
           echo "后端地址：$URL"
           DEFINES="--dart-define=API_BASE_URL=$URL"
           if [ -n "${{ inputs.turn_url }}" ]; then
@@ -168,7 +168,7 @@ jobs:
           echo "- Flutter：${{ steps.ver.outputs.flutter }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- 提交：\`${{ steps.ver.outputs.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- 包名：\`com.datechat.datechat\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 后端：\`${{ inputs.api_base_url || 'https://api.datechat.example' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 后端：\`${{ inputs.api_base_url || 'https://hs2.rqez.cn' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| ABI | 体积 | 适用 |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
